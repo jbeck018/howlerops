@@ -625,9 +625,10 @@ func (f *Factory) ValidateConfig(config ConnectionConfig) error {
 		return fmt.Errorf("database type is required")
 	}
 
-	if config.Database == "" {
-		return fmt.Errorf("database name is required")
-	}
+	// Database is optional for server-based engines: when blank we connect via a
+	// maintenance database and let the user choose the working database after
+	// connecting (pgAdmin-style). SQLite still requires its file path (enforced
+	// in its case below).
 
 	switch config.Type {
 	case PostgreSQL, MySQL, MariaDB, ClickHouse, TiDB:

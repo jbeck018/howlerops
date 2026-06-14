@@ -147,10 +147,32 @@ func stripProtocol(host string) string {
 	return host
 }
 
+// maintenanceDatabase returns the database used to establish a session when the
+// user has not chosen a specific one (pgAdmin-style). It only opens the
+// connection so databases can be enumerated; the user selects the working
+// database afterwards via SwitchDatabase. An empty return means the engine needs
+// no default database to connect.
+func maintenanceDatabase(t DatabaseType) string {
+	switch t {
+	case PostgreSQL:
+		return "postgres"
+	case ClickHouse:
+		return "default"
+	default:
+		// MySQL/MariaDB/TiDB connect happily with no default schema; the
+		// document/search engines have no database concept at connect time.
+		return ""
+	}
+}
+
 // buildPostgresDSN builds PostgreSQL DSN
 func (p *ConnectionPool) buildPostgresDSN() string {
+	dbName := p.config.Database
+	if dbName == "" {
+		dbName = maintenanceDatabase(PostgreSQL)
+	}
 	dsn := fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s",
-		stripProtocol(p.config.Host), p.config.Port, p.config.Database, p.config.Username, p.config.Password)
+		stripProtocol(p.config.Host), p.config.Port, dbName, p.config.Username, p.config.Password)
 
 	if p.config.SSLMode != "" {
 		dsn += fmt.Sprintf(" sslmode=%s", p.config.SSLMode)
@@ -261,9 +283,13 @@ func (p *ConnectionPool) buildSQLiteDSN() string {
 
 // buildClickHouseDSN builds ClickHouse DSN
 func (p *ConnectionPool) buildClickHouseDSN() string {
+	dbName := p.config.Database
+	if dbName == "" {
+		dbName = maintenanceDatabase(ClickHouse)
+	}
 	// ClickHouse DSN format: clickhouse://username:password@host:port/database?param=value
 	dsn := fmt.Sprintf("clickhouse://%s:%s@%s:%d/%s",
-		p.config.Username, p.config.Password, p.config.Host, p.config.Port, p.config.Database)
+		p.config.Username, p.config.Password, p.config.Host, p.config.Port, dbName)
 
 	params := make(map[string]string)
 

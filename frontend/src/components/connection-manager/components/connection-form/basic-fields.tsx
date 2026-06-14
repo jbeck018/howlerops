@@ -189,13 +189,20 @@ export function BasicFields({
         <Label htmlFor="database" className="text-right">
           {getDatabaseLabel(formData.type)}
         </Label>
-        <Input
-          id="database"
-          value={formData.database}
-          onChange={(e) => onFormDataChange({ database: e.target.value })}
-          className="col-span-3"
-          required={isDatabaseRequired(formData.type)}
-        />
+        <div className="col-span-3 space-y-1">
+          <Input
+            id="database"
+            value={formData.database}
+            onChange={(e) => onFormDataChange({ database: e.target.value })}
+            placeholder={isDatabaseRequired(formData.type) ? undefined : "Leave blank to choose after connecting"}
+            required={isDatabaseRequired(formData.type)}
+          />
+          {requiresHostPort(formData.type) && !isDatabaseRequired(formData.type) && (
+            <p className="text-xs text-muted-foreground">
+              Optional. Leave blank to connect to the server and pick a database when you run queries.
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Username and Password */}

@@ -68,7 +68,7 @@ type ConnectionConfig struct {
 	Type              DatabaseType      `json:"type" validate:"required"`
 	Host              string            `json:"host"`
 	Port              int               `json:"port"`
-	Database          string            `json:"database" validate:"required"`
+	Database          string            `json:"database"` // optional; blank connects via a maintenance DB (see maintenanceDatabase)
 	Username          string            `json:"username"`
 	Password          string            `json:"password"`
 	SSLMode           string            `json:"ssl_mode"`
