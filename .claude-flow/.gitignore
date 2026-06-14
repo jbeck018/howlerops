@@ -5,3 +5,7 @@ sessions/
 neural/
 *.log
 *.tmp
+
+# Daemon runtime state (rewritten continuously by the running daemon)
+daemon.pid
+daemon-state.json
