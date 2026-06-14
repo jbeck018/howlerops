@@ -178,6 +178,15 @@ func (m *Manager) CreateConnection(ctx context.Context, config ConnectionConfig)
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
+	// When the user connected without choosing a database, record the one the
+	// server actually placed us on (the maintenance database) so the UI can show
+	// it as the active database and switch away from it (pgAdmin-style).
+	if strings.TrimSpace(config.Database) == "" {
+		if current := currentDatabaseName(ctx, db); current != "" {
+			config.Database = current
+		}
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -617,6 +626,20 @@ func (f *Factory) CreateDatabase(config ConnectionConfig) (Database, error) {
 	default:
 		return nil, fmt.Errorf("unsupported database type: %s", config.Type)
 	}
+}
+
+// currentDatabaseName returns the database the connection is currently using, or
+// "" if it cannot be determined. Used to surface the maintenance database the
+// server selected when the user connected without choosing one.
+func currentDatabaseName(ctx context.Context, db Database) string {
+	info, err := db.GetConnectionInfo(ctx)
+	if err != nil {
+		return ""
+	}
+	if name, ok := info["database"].(string); ok {
+		return strings.TrimSpace(name)
+	}
+	return ""
 }
 
 // ValidateConfig validates a database configuration

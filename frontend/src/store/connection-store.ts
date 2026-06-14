@@ -335,10 +335,16 @@ export const useConnectionStore = create<ConnectionState>()(
               parameters: aliasParameters,
             })
 
-            const responseData = response.data as { id?: string } | null
+            const responseData = response.data as { id?: string; database?: string } | null
             if (!response.success || !responseData?.id) {
               throw new Error(response.message || 'Failed to create connection')
             }
+
+            // When connecting without a chosen database, the backend reports the
+            // maintenance database it landed on so we can show it as active.
+            const resolvedDatabase = responseData.database?.trim()
+              ? responseData.database
+              : connection.database
 
             // Save connection metadata to backend storage for RAG indexing
             try {
@@ -361,6 +367,7 @@ export const useConnectionStore = create<ConnectionState>()(
 
             const updatedConnection: DatabaseConnection = {
               ...connection,
+              database: resolvedDatabase,
               sessionId: responseData.id,
               isConnected: true,
               lastUsed: new Date(),
