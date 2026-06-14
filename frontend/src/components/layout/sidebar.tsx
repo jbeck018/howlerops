@@ -1,147 +1,38 @@
 import {
-  BookOpen,
   ChevronDown,
-  ChevronRight,
-  Columns,
   Database,
-  FileText,
   Filter,
-  Folder,
-  FolderOpen,
-  GitCompare,
-  Key,
   Loader2,
-  Network,
   PanelLeftClose,
   PanelRightOpen,
-  Plus,
-  Settings,
-  Table,
   Tag,
-  Terminal,
 } from "lucide-react"
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
-import { Link, useLocation, useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { useShallow } from "zustand/react/shallow"
 
 import { ConnectionSchemaViewer } from "@/components/connection-schema-viewer"
 import { EnvironmentManager } from "@/components/environment-manager"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import type { SchemaNode } from "@/hooks/use-schema-introspection"
-import { toast } from "@/hooks/use-toast"
-import { preloadComponent } from "@/lib/component-preload"
 import { cn } from "@/lib/utils"
 import { type DatabaseConnection, useConnectionStore } from "@/store/connection-store"
 import { useQueryEditorStore } from "@/store/query-editor-store"
 
+import { ConnectionRow } from "./connection-row"
+import { SidebarNav } from "./sidebar-nav"
+
+// Re-exported for consumers that render schema trees outside the sidebar.
+export { SchemaTree } from "./schema-tree"
+
 // Lazy-load the heavy schema visualizer (uses reactflow)
-const SchemaVisualizerWrapper = lazy(() => import("@/components/schema-visualizer/schema-visualizer").then(m => ({ default: m.SchemaVisualizerWrapper })))
-const preloadSchemaVisualizer = () => import("@/components/schema-visualizer/schema-visualizer").then(m => ({ default: m.SchemaVisualizerWrapper as React.ComponentType<unknown> }))
-
-// Navigation items configuration
-const NAV_ITEMS = [
-  { path: '/dashboard', label: 'Queries', icon: Terminal },
-  { path: '/connections', label: 'Connections', icon: Database },
-  { path: '/reports', label: 'Reports', icon: FileText },
-  { path: '/schema-diff', label: 'Schema Diff', icon: GitCompare },
-  { path: '/data-catalog', label: 'Data Catalog', icon: BookOpen },
-  { path: '/settings', label: 'Settings', icon: Settings },
-] as const
-
-interface SchemaTreeProps {
-  nodes: SchemaNode[]
-  level?: number
-}
-
-export function SchemaTree({ nodes, level = 0 }: SchemaTreeProps) {
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
-    new Set(nodes.filter(node => node.expanded).map(node => node.id))
-  )
-
-  const toggleNode = (nodeId: string) => {
-    setExpandedNodes(prev => {
-      const newSet = new Set(prev)
-      if (newSet.has(nodeId)) {
-        newSet.delete(nodeId)
-      } else {
-        newSet.add(nodeId)
-      }
-      return newSet
-    })
-  }
-
-  const getIcon = (node: SchemaNode, isExpanded: boolean) => {
-    switch (node.type) {
-      case 'database':
-      case 'schema':
-        return isExpanded ? <FolderOpen className="h-4 w-4" /> : <Folder className="h-4 w-4" />
-      case 'table':
-        return <Table className="h-4 w-4" />
-      case 'column':
-        return node.name.includes('PK') ? <Key className="h-4 w-4" /> : <Columns className="h-4 w-4" />
-      default:
-        return <div className="h-4 w-4" />
-    }
-  }
-
-  return (
-    <div className="space-y-1">
-      {nodes.map((node) => {
-        const isExpanded = expandedNodes.has(node.id)
-        const hasChildren = node.children && node.children.length > 0
-
-        return (
-          <div key={node.id}>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start h-8 px-2"
-              style={{ paddingLeft: `${8 + level * 16}px` }}
-              onClick={() => {
-                if (hasChildren) {
-                  toggleNode(node.id)
-                }
-              }}
-            >
-              {hasChildren && (
-                <div className="mr-1">
-                  {isExpanded ? (
-                    <ChevronDown className="h-3 w-3" />
-                  ) : (
-                    <ChevronRight className="h-3 w-3" />
-                  )}
-                </div>
-              )}
-              {!hasChildren && <div className="w-4" />}
-              <div className="mr-2">
-                {getIcon(node, isExpanded)}
-              </div>
-              <span className="text-sm truncate">{node.name}</span>
-              {node.type === 'schema' && node.children && (
-                <Badge variant="secondary" className="ml-auto text-xs">
-                  {node.children.length}
-                </Badge>
-              )}
-            </Button>
-
-            {hasChildren && isExpanded && (
-              <SchemaTree
-                nodes={node.children!}
-                level={level + 1}
-              />
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
+const SchemaVisualizerWrapper = lazy(() =>
+  import("@/components/schema-visualizer/schema-visualizer").then(m => ({ default: m.SchemaVisualizerWrapper }))
+)
 
 interface SidebarProps {
   onToggle?: () => void
@@ -149,7 +40,6 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onToggle, isCollapsed = false }: SidebarProps) {
-  const location = useLocation()
   const navigate = useNavigate()
   const {
     connections,
@@ -160,9 +50,6 @@ export function Sidebar({ onToggle, isCollapsed = false }: SidebarProps) {
     activeEnvironmentFilter,
     availableEnvironments,
     setEnvironmentFilter,
-    getFilteredConnections,
-    fetchDatabases,
-    switchDatabase,
   } = useConnectionStore(useShallow((state) => ({
     connections: state.connections,
     activeConnection: state.activeConnection,
@@ -172,140 +59,40 @@ export function Sidebar({ onToggle, isCollapsed = false }: SidebarProps) {
     activeEnvironmentFilter: state.activeEnvironmentFilter,
     availableEnvironments: state.availableEnvironments,
     setEnvironmentFilter: state.setEnvironmentFilter,
-    getFilteredConnections: state.getFilteredConnections,
-    fetchDatabases: state.fetchDatabases,
-    switchDatabase: state.switchDatabase,
   })))
   const { tabs, activeTabId, updateTab } = useQueryEditorStore(useShallow((state) => ({
     tabs: state.tabs,
     activeTabId: state.activeTabId,
     updateTab: state.updateTab,
   })))
+
   const [connectingId, setConnectingId] = useState<string | null>(null)
   const [showEnvironmentManager, setShowEnvironmentManager] = useState(false)
-  const [connectionDbState, setConnectionDbState] = useState<Record<string, {
-    options: string[]
-    loading?: boolean
-    switching?: boolean
-    error?: string
-  }>>({})
-  const dbErrorToastRef = useRef<Record<string, string | undefined>>({})
-  const [dbAccordionOpen, setDbAccordionOpen] = useState<Record<string, boolean>>({})
   const [connectionsExpanded, setConnectionsExpanded] = useState(true)
-
-  // New state for connection actions
-  const [hoveredConnectionId, setHoveredConnectionId] = useState<string | null>(null)
   const [schemaViewConnectionId, setSchemaViewConnectionId] = useState<string | null>(null)
   const [diagramConnectionId, setDiagramConnectionId] = useState<string | null>(null)
 
-  // Get filtered connections
-  const filteredConnections = getFilteredConnections()
-  const loadConnectionDatabases = useCallback(async (connectionId: string) => {
-    if (!connectionId) {
-      return
+  // Compute these once per render rather than per connection row.
+  const activeTab = useMemo(
+    () => tabs.find(tab => tab.id === activeTabId),
+    [tabs, activeTabId]
+  )
+  const filteredConnections = useMemo(() => {
+    if (!activeEnvironmentFilter) {
+      return connections
     }
-    setConnectionDbState(prev => {
-      const current = prev[connectionId]
-      if (current?.loading) {
-        return prev
-      }
-      return {
-        ...prev,
-        [connectionId]: {
-          options: current?.options ?? [],
-          loading: true,
-          switching: current?.switching ?? false,
-          error: undefined,
-        },
-      }
-    })
-    try {
-      const dbs = await fetchDatabases(connectionId)
-      setConnectionDbState(prev => ({
-        ...prev,
-        [connectionId]: {
-          options: dbs,
-          loading: false,
-          switching: prev[connectionId]?.switching ?? false,
-          error: dbs.length === 0 ? 'No databases available' : undefined,
-        },
-      }))
-      delete dbErrorToastRef.current[connectionId]
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to load databases'
-      setConnectionDbState(prev => ({
-        ...prev,
-        [connectionId]: {
-          options: prev[connectionId]?.options ?? [],
-          loading: false,
-          switching: prev[connectionId]?.switching ?? false,
-          error: message,
-        },
-      }))
-      if (dbErrorToastRef.current[connectionId] !== message) {
-        toast({
-          title: 'Unable to load databases',
-          description: message,
-          variant: 'destructive',
-        })
-        dbErrorToastRef.current[connectionId] = message
-      }
-    }
-  }, [fetchDatabases])
+    return connections.filter((conn) =>
+      !conn.environments || conn.environments.length === 0
+        ? true
+        : conn.environments.includes(activeEnvironmentFilter)
+    )
+  }, [connections, activeEnvironmentFilter])
 
-  const handleDatabaseSelect = useCallback(async (connection: DatabaseConnection, database: string) => {
-    if (!database || database === connection.database) {
-      return
-    }
-
-    setConnectionDbState(prev => ({
-      ...prev,
-      [connection.id]: {
-        options: prev[connection.id]?.options ?? [],
-        loading: prev[connection.id]?.loading ?? false,
-        switching: true,
-        error: prev[connection.id]?.error,
-      },
-    }))
-
-    try {
-      await switchDatabase(connection.id, database)
-      toast({
-        title: 'Database switched',
-        description: `${connection.name} is now using ${database}.`,
-      })
-    } catch (error) {
-      toast({
-        title: 'Failed to switch database',
-        description: error instanceof Error ? error.message : 'Unable to switch database',
-        variant: 'destructive',
-      })
-    } finally {
-      setConnectionDbState(prev => ({
-        ...prev,
-        [connection.id]: {
-          ...(prev[connection.id] ?? { options: [] }),
-          switching: false,
-        },
-      }))
-    }
-  }, [switchDatabase])
-
-  useEffect(() => {
-    if (activeConnection?.id && activeConnection.isConnected) {
-      void loadConnectionDatabases(activeConnection.id)
-    }
-  }, [activeConnection?.id, activeConnection?.isConnected, loadConnectionDatabases])
-
-  const handleConnectionSelect = async (connection: DatabaseConnection) => {
+  const handleConnectionSelect = useCallback(async (connection: DatabaseConnection) => {
     if (connection.sessionId) {
       setActiveConnection(connection)
-      if (connection.isConnected) {
-        void loadConnectionDatabases(connection.id)
-      }
       return
     }
-
     setConnectingId(connection.id)
     try {
       await connectToDatabase(connection.id)
@@ -314,45 +101,32 @@ export function Sidebar({ onToggle, isCollapsed = false }: SidebarProps) {
     } finally {
       setConnectingId(null)
     }
-  }
+  }, [connectToDatabase, setActiveConnection])
 
-  const handleAddToQueryTab = (connectionId: string) => {
-    const activeTab = tabs.find(tab => tab.id === activeTabId)
+  const handleAddToQueryTab = useCallback((connectionId: string) => {
     if (!activeTab) {
-      // No active tab, could show a toast notification
       return
     }
-
-    // Check if connection is already in the tab
     const isAlreadyInTab = activeTab.connectionId === connectionId ||
-      (activeTab.selectedConnectionIds && activeTab.selectedConnectionIds.includes(connectionId))
-
+      (activeTab.selectedConnectionIds?.includes(connectionId) ?? false)
     if (isAlreadyInTab) {
       return
     }
-
-    // Add connection to the active tab
     if (activeTab.selectedConnectionIds) {
-      // Multi-DB mode: add to selectedConnectionIds
       updateTab(activeTab.id, {
-        selectedConnectionIds: [...(activeTab.selectedConnectionIds || []), connectionId]
+        selectedConnectionIds: [...activeTab.selectedConnectionIds, connectionId],
       })
     } else {
-      // Single-DB mode: set connectionId
-      updateTab(activeTab.id, {
-        connectionId: connectionId,
-        selectedConnectionIds: [connectionId]
-      })
+      updateTab(activeTab.id, { connectionId, selectedConnectionIds: [connectionId] })
     }
-  }
+  }, [activeTab, updateTab])
 
-  const handleViewSchema = (connectionId: string) => {
+  const handleViewSchema = useCallback((connectionId: string) => {
     setSchemaViewConnectionId(connectionId)
-  }
-
-  const handleViewDiagram = (connectionId: string) => {
+  }, [])
+  const handleViewDiagram = useCallback((connectionId: string) => {
     setDiagramConnectionId(connectionId)
-  }
+  }, [])
 
   // Collapsed sidebar view
   if (isCollapsed) {
@@ -367,26 +141,8 @@ export function Sidebar({ onToggle, isCollapsed = false }: SidebarProps) {
         >
           <PanelRightOpen className="h-4 w-4" />
         </Button>
-
         <Separator className="w-6 my-2" />
-
-        {/* Collapsed nav icons */}
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.icon
-          const isActive = location.pathname === item.path
-          return (
-            <Button
-              key={item.path}
-              variant={isActive ? "secondary" : "ghost"}
-              size="icon"
-              className="h-8 w-8 p-0"
-              onClick={() => navigate(item.path)}
-              title={item.label}
-            >
-              <Icon className="h-4 w-4" />
-            </Button>
-          )
-        })}
+        <SidebarNav collapsed />
       </div>
     )
   }
@@ -411,43 +167,14 @@ export function Sidebar({ onToggle, isCollapsed = false }: SidebarProps) {
             )}
           </div>
 
-          {/* Navigation Links */}
-          <nav className="px-3 space-y-1">
-            {NAV_ITEMS.map((item) => {
-              const Icon = item.icon
-              const isActive = location.pathname === item.path
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-secondary text-secondary-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                  )}
-                >
-                  <Icon className="h-4 w-4 flex-shrink-0" />
-                  <span className="truncate">{item.label}</span>
-                </Link>
-              )
-            })}
-          </nav>
+          <SidebarNav />
 
           <Separator className="my-3" />
 
           {/* Connections Section */}
-          <Collapsible
-            open={connectionsExpanded}
-            onOpenChange={setConnectionsExpanded}
-            className="px-2"
-          >
+          <Collapsible open={connectionsExpanded} onOpenChange={setConnectionsExpanded} className="px-2">
             <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-between px-3 py-2 h-auto"
-              >
+              <Button variant="ghost" size="sm" className="w-full justify-between px-3 py-2 h-auto">
                 <div className="flex items-center gap-2">
                   <Database className="h-4 w-4" />
                   <span className="text-xs font-semibold uppercase tracking-wider">Active Connections</span>
@@ -526,159 +253,25 @@ export function Sidebar({ onToggle, isCollapsed = false }: SidebarProps) {
                   </div>
                 ) : (
                   filteredConnections.map((connection) => {
-                    const isActive = activeConnection?.id === connection.id
-                    const isPending = connectingId === connection.id
-                    const isHovered = hoveredConnectionId === connection.id
-                    const activeTab = tabs.find(tab => tab.id === activeTabId)
-                    const isInActiveTab = activeTab && (
+                    const isInActiveTab = Boolean(activeTab && (
                       activeTab.connectionId === connection.id ||
-                      (activeTab.selectedConnectionIds && activeTab.selectedConnectionIds.includes(connection.id))
-                    );
-                    const dbState = connectionDbState[connection.id];
-
-                    const selectedDatabase =
-                      connection.database && dbState?.options?.includes(connection.database)
-                        ? connection.database
-                        : undefined
-                    const accordionOpen = dbAccordionOpen[connection.id] ?? (connection.id === activeConnection?.id)
-
+                      (activeTab.selectedConnectionIds?.includes(connection.id) ?? false)
+                    ))
                     return (
-                      <Collapsible
+                      <ConnectionRow
                         key={connection.id}
-                        open={accordionOpen}
-                        onOpenChange={(open) =>
-                          setDbAccordionOpen((prev) => ({
-                            ...prev,
-                            [connection.id]: open,
-                          }))
-                        }
-                        className="space-y-1"
-                      >
-                        <div
-                          className="flex items-center gap-1 group"
-                          onMouseEnter={() => setHoveredConnectionId(connection.id)}
-                          onMouseLeave={() => setHoveredConnectionId(null)}
-                        >
-                          {/* Connection button */}
-                          <Button
-                            variant={isActive || isPending ? "secondary" : "ghost"}
-                            size="sm"
-                            className="h-7 flex-1 justify-start overflow-hidden text-xs"
-                            disabled={isConnecting}
-                            onClick={() => {
-                              void handleConnectionSelect(connection)
-                            }}
-                          >
-                            <span className="truncate flex-1 text-left">{connection.name}</span>
-
-                            <span className="ml-1 inline-flex items-center flex-shrink-0">
-                              {isPending ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : connection.isConnected ? (
-                                <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                              ) : null}
-                            </span>
-                          </Button>
-
-                          {/* Action buttons + accordion toggle */}
-                          {connection.isConnected && (
-                            <>
-                              {isHovered && (
-                                <div className="flex items-center">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-5 w-5 p-0"
-                                    onClick={() => handleViewSchema(connection.id)}
-                                    title="View Tables"
-                                  >
-                                    <Table className="h-3 w-3" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-5 w-5 p-0"
-                                    onClick={() => handleViewDiagram(connection.id)}
-                                    onMouseEnter={() => void preloadComponent(preloadSchemaVisualizer)}
-                                    title="View Schema Diagram"
-                                  >
-                                    <Network className="h-3 w-3" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-5 w-5 p-0"
-                                    onClick={() => handleAddToQueryTab(connection.id)}
-                                    disabled={!activeTab || isInActiveTab}
-                                    title={!activeTab ? "No active query tab" : isInActiveTab ? "Already in query tab" : "Add to Query Tab"}
-                                  >
-                                    <Plus className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              )}
-                              <CollapsibleTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-5 w-5 p-0"
-                                  title={accordionOpen ? "Hide database selector" : "Show database selector"}
-                                >
-                                  <ChevronDown
-                                    className={cn(
-                                      "h-3 w-3 transition-transform",
-                                      accordionOpen && "rotate-180"
-                                    )}
-                                  />
-                                </Button>
-                              </CollapsibleTrigger>
-                            </>
-                          )}
-                        </div>
-
-                        {connection.isConnected && (
-                          <CollapsibleContent className="pl-4 pr-1">
-                            {dbState?.options && dbState.options.length > 0 ? (
-                              <Select
-                                value={selectedDatabase}
-                                onValueChange={(value) => handleDatabaseSelect(connection, value)}
-                                disabled={dbState?.switching}
-                              >
-                                <SelectTrigger className="h-7 text-xs justify-between">
-                                  <SelectValue placeholder="Select database" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {dbState.options.map((db) => (
-                                    <SelectItem key={db} value={db}>
-                                      {db}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 text-xs"
-                                onClick={() => loadConnectionDatabases(connection.id)}
-                                disabled={dbState?.loading}
-                              >
-                                {dbState?.loading ? (
-                                  <>
-                                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                    Loading...
-                                  </>
-                                ) : (
-                                  'Load databases'
-                                )}
-                              </Button>
-                            )}
-                            {dbState?.error && (
-                              <p className="text-[10px] text-destructive mt-1">{dbState.error}</p>
-                            )}
-                          </CollapsibleContent>
-                        )}
-                      </Collapsible>
-                    );
+                        connection={connection}
+                        isActive={activeConnection?.id === connection.id}
+                        isPending={connectingId === connection.id}
+                        isConnecting={isConnecting}
+                        isInActiveTab={isInActiveTab}
+                        hasActiveTab={Boolean(activeTab)}
+                        onSelect={handleConnectionSelect}
+                        onAddToQueryTab={handleAddToQueryTab}
+                        onViewSchema={handleViewSchema}
+                        onViewDiagram={handleViewDiagram}
+                      />
+                    )
                   })
                 )}
               </div>
