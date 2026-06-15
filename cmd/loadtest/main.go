@@ -104,8 +104,10 @@ func (h *harness) run(reportPath string) error {
 		MaxConnections:    25,
 		MaxIdleConns:      5,
 		Parameters: map[string]string{
-			"cache":         "shared",
+			// Mirror the app's local-storage config: private cache + WAL so
+			// concurrent readers run in parallel (see pkg/storage/sqlite_local.go).
 			"mode":          "rwc",
+			"_journal_mode": "WAL",
 			"_busy_timeout": "5000",
 		},
 	}

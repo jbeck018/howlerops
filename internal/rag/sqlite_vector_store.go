@@ -141,8 +141,9 @@ type SQLiteVectorStore struct {
 
 // NewSQLiteVectorStore creates a new SQLite vector store
 func NewSQLiteVectorStore(config *SQLiteVectorConfig, logger *logrus.Logger) (*SQLiteVectorStore, error) {
-	// Open SQLite database
-	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?cache=shared&mode=rwc", config.Path))
+	// Open SQLite database with a private page cache so concurrent readers run
+	// in parallel under WAL (shared-cache mode serializes readers).
+	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?mode=rwc", config.Path))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open SQLite database: %w", err)
 	}

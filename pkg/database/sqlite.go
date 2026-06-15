@@ -212,6 +212,12 @@ func (s *SQLiteDatabase) executeSelect(ctx context.Context, db *sql.DB, query st
 		} else {
 			// No user LIMIT - get total count and apply pagination.
 			// Skip the count when the caller already knows the total (pagination).
+			//
+			// NOTE: the count runs sequentially on purpose. Running it concurrently
+			// with the fetch improves single-query first-paint latency but doubles
+			// the number of concurrent full scans under load, which measurably
+			// regresses throughput (see docs/performance). A true "async total"
+			// (return rows now, push the count via event) is the right follow-up.
 			if !opts.SkipCount {
 				// #nosec G201 - queryWithoutLimit is the user's SELECT query which will be executed with parameterized args
 				countQuery := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS count_subquery", queryWithoutLimit)
