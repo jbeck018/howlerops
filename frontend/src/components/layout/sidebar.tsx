@@ -3,8 +3,6 @@ import {
   Database,
   Filter,
   Loader2,
-  PanelLeftClose,
-  PanelRightOpen,
   Tag,
 } from "lucide-react"
 import { lazy, Suspense, useCallback, useMemo, useState } from "react"
@@ -18,13 +16,11 @@ import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { type DatabaseConnection, useConnectionStore } from "@/store/connection-store"
 import { useQueryEditorStore } from "@/store/query-editor-store"
 
 import { ConnectionRow } from "./connection-row"
-import { SidebarNav } from "./sidebar-nav"
 
 // Re-exported for consumers that render schema trees outside the sidebar.
 export { SchemaTree } from "./schema-tree"
@@ -34,12 +30,7 @@ const SchemaVisualizerWrapper = lazy(() =>
   import("@/components/schema-visualizer/schema-visualizer").then(m => ({ default: m.SchemaVisualizerWrapper }))
 )
 
-interface SidebarProps {
-  onToggle?: () => void
-  isCollapsed?: boolean
-}
-
-export function Sidebar({ onToggle, isCollapsed = false }: SidebarProps) {
+export function Sidebar() {
   const navigate = useNavigate()
   const {
     connections,
@@ -128,49 +119,10 @@ export function Sidebar({ onToggle, isCollapsed = false }: SidebarProps) {
     setDiagramConnectionId(connectionId)
   }, [])
 
-  // Collapsed sidebar view
-  if (isCollapsed) {
-    return (
-      <div className="w-12 border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0 flex flex-col items-center py-3 gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 p-0 mb-2"
-          onClick={onToggle}
-          title="Expand sidebar"
-        >
-          <PanelRightOpen className="h-4 w-4" />
-        </Button>
-        <Separator className="w-6 my-2" />
-        <SidebarNav collapsed />
-      </div>
-    )
-  }
-
   return (
     <div className="w-56 border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0 flex flex-col">
       <ScrollArea className="flex-1">
-        <div className="flex flex-col h-full">
-          {/* Header with collapse button */}
-          <div className="p-3 flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Navigation</span>
-            {onToggle && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                onClick={onToggle}
-                title="Collapse sidebar"
-              >
-                <PanelLeftClose className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
-
-          <SidebarNav />
-
-          <Separator className="my-3" />
-
+        <div className="flex flex-col h-full pt-2">
           {/* Connections Section */}
           <Collapsible open={connectionsExpanded} onOpenChange={setConnectionsExpanded} className="px-2">
             <CollapsibleTrigger asChild>

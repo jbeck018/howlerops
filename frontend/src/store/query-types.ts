@@ -5,6 +5,9 @@
 
 export type QueryTabType = 'sql' | 'ai'
 
+/** Per-tab database execution mode. */
+export type QueryTabMode = 'single' | 'multi'
+
 export interface QueryTab {
   id: string
   title: string
@@ -17,6 +20,7 @@ export interface QueryTab {
   connectionId?: string // Per-tab connection support (single-DB mode)
   selectedConnectionIds?: string[] // Multi-select connections (multi-DB mode)
   environmentSnapshot?: string | null // Capture environment filter at creation
+  mode?: QueryTabMode // Per-tab single/multi DB mode (overrides auto-detect)
   aiSessionId?: string
 }
 
