@@ -54,12 +54,13 @@ func NormalizeValue(val interface{}) interface{} {
 
 	// Handle byte arrays (convert to string for text data)
 	case []byte:
-		// Try to unmarshal as JSON first (for JSONB, JSON columns)
-		var jsonVal interface{}
-		if err := json.Unmarshal(v, &jsonVal); err == nil {
+		// Only attempt JSON decoding when the bytes can legally begin a JSON
+		// value. Plain text/varchar columns are commonly returned as []byte and
+		// would always fail json.Unmarshal, so this skips a wasted parse on the
+		// hot path (every string cell of every result set).
+		if jsonVal, ok := decodeJSONBytes(v); ok {
 			return jsonVal
 		}
-		// Otherwise treat as string
 		return string(v)
 
 	// Handle time.Time
@@ -123,6 +124,36 @@ func NormalizeValue(val interface{}) interface{} {
 	default:
 		return val
 	}
+}
+
+// decodeJSONBytes attempts to decode b as JSON, but only when its first
+// non-whitespace byte can legally begin a JSON value (one of { [ " - t f n or a
+// digit). Any other leading byte cannot be valid JSON, so json.Unmarshal would
+// fail anyway — returning (nil, false) lets the caller fall back to a string
+// without paying for the parse. Behaviour is identical to always trying to
+// unmarshal; only the wasted attempts on plain text are skipped.
+func decodeJSONBytes(b []byte) (interface{}, bool) {
+	i := 0
+	for i < len(b) {
+		switch b[i] {
+		case ' ', '\t', '\n', '\r':
+			i++
+			continue
+		}
+		break
+	}
+	if i >= len(b) {
+		return nil, false
+	}
+
+	switch c := b[i]; {
+	case c == '{', c == '[', c == '"', c == '-', c == 't', c == 'f', c == 'n', c >= '0' && c <= '9':
+		var jsonVal interface{}
+		if err := json.Unmarshal(b, &jsonVal); err == nil {
+			return jsonVal, true
+		}
+	}
+	return nil, false
 }
 
 // NormalizeRow normalizes all values in a row

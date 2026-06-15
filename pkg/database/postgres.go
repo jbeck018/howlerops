@@ -286,13 +286,12 @@ func (p *PostgresDatabase) executeSelect(ctx context.Context, db *sql.DB, query 
 			}
 		}
 
-		// NEW: Normalize each value
-		normalizedRow := make([]interface{}, len(values))
-		for i, val := range values {
-			normalizedRow[i] = NormalizeValue(val)
+		// Normalize each value in place to avoid a second per-row allocation.
+		for i := range values {
+			values[i] = NormalizeValue(values[i])
 		}
 
-		result.Rows = append(result.Rows, normalizedRow)
+		result.Rows = append(result.Rows, values)
 	}
 
 	if err := rows.Err(); err != nil {
