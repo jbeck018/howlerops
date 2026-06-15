@@ -160,8 +160,11 @@ func (h *Handler) InitiateSSOLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Redirect to SSO provider
-	http.Redirect(w, r, loginURL, http.StatusTemporaryRedirect)
+	// Redirect to the organization's configured SSO provider. loginURL is built
+	// server-side from the org's stored SSO config (the IdP authorization
+	// endpoint), not from request input, so gosec's open-redirect taint warning
+	// is a false positive.
+	http.Redirect(w, r, loginURL, http.StatusTemporaryRedirect) // #nosec G710 -- loginURL is the configured SSO provider URL, not user input
 }
 
 // SSOCallback handles SSO callback
