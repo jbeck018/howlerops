@@ -5,27 +5,34 @@ breakpoints — latency cliffs, memory blow-ups, the cost of the pagination
 `COUNT(*)`, and concurrency collapse.
 
 It drives the **actual engine code path** (`ExecuteWithOptions`, normalization,
-pagination) against an in-process SQLite database loaded with a large synthetic
-dataset. The dataset is generated into a temp directory and **deleted on exit**,
-so a run leaves nothing behind except the report.
-
-> Scope note: this exercises the SQLite engine in-process (runnable in CI / a
-> dev box with no GUI or external DB). The Postgres/MySQL engines share the same
-> `executeSelect` structure (count → fetch → normalize), so the relative
-> findings — COUNT cost, normalization cost, the SkipCount win — generalize;
-> absolute numbers will differ per driver/server.
+pagination) against a database loaded with a large synthetic dataset. The load
+is **destroyed on exit** (temp SQLite dir removed / `events` table dropped), so a
+run leaves nothing behind except the report.
 
 ## Running
+
+### SQLite (in-process, no external service)
 
 ```bash
 # small (~10k rows), medium (~100k), large (~500k)
 go run ./cmd/loadtest --scale large --out docs/performance/LOAD_TEST_REPORT.md
-
-# tune concurrent workers for the contention scenario
 go run ./cmd/loadtest --scale medium --concurrency 32
 ```
 
-The latest run is captured in [`LOAD_TEST_REPORT.md`](./LOAD_TEST_REPORT.md).
+### Postgres / MySQL (dockerized kit)
+
+```bash
+docker compose -f docs/performance/docker-compose.loadtest.yml up -d
+go run ./cmd/loadtest --engine postgres --scale large
+go run ./cmd/loadtest --engine mysql    --scale large
+docker compose -f docs/performance/docker-compose.loadtest.yml down -v
+```
+
+Credentials default to `loadtest`/`loadtest`/`loadtest` to match the compose
+file; override with `--host/--port/--user/--password/--db/--sslmode`.
+
+The latest committed run is [`LOAD_TEST_REPORT.md`](./LOAD_TEST_REPORT.md)
+(SQLite, large scale).
 
 ## Scenarios
 
@@ -42,48 +49,62 @@ The latest run is captured in [`LOAD_TEST_REPORT.md`](./LOAD_TEST_REPORT.md).
 A scenario is flagged as a **breakpoint** when it errors, when p95 latency
 exceeds 2s, or when a single scenario retains >256 MB of heap.
 
-## Findings (large scale: 500k rows, 16 workers)
+## Findings & actions (SQLite, 500k rows, 16 workers)
 
-### 🔴 Breakpoint — concurrency collapse
-Throughput fell from ~188 q/s (100k rows) to **~8 q/s** (500k rows), with p95
-**5.7s** and max **8s**. Root causes, in order of impact:
+### 🔴→🟢 Concurrency collapse — FIXED
+The first run collapsed under load: throughput fell from ~188 q/s (100k rows) to
+**~8 q/s** (500k), with p95 **5.7s**. Root cause: SQLite `cache=shared`
+serializes readers behind a table-level lock even under WAL, compounded by
+unindexed full scans.
 
-1. **Unindexed filters become full scans.** The workload filters on `user_id`
-   with no index, so every query scans all 500k rows. Under 16 concurrent
-   workers this dominates.
-2. **SQLite `cache=shared` serializes readers.** Shared-cache mode takes a
-   table-level read lock, so concurrent readers contend instead of running in
-   parallel.
+**Fix (this branch):** dropped `cache=shared` (private page cache) on the
+app-owned SQLite databases (`pkg/storage/sqlite_local.go`, the RAG vector store)
+and added `_busy_timeout`. Re-running shows concurrency **p95 ~0.68s** and
+**~37 q/s** — the breakpoint clears. Trade-off: isolated single-query latency
+rises slightly (less cross-connection cache sharing), which is the right call for
+a multi-tab desktop client.
 
-**Recommendations for the app's local SQLite usage:** enable WAL journal mode
-(`_journal_mode=WAL`) and prefer a private cache for read concurrency; ensure
-indexes exist on columns the app filters/sorts on in its own storage tables.
-(For user-connected databases this is the user's schema, but the same lesson —
-unindexed filters don't scale under concurrency — is worth surfacing in the UI,
-e.g. an EXPLAIN/"add index" hint.)
+### 🟢 Pagination SkipCount — validated
+Paging with the current `SkipCount` behaviour is **~10–14× faster per page**
+(p50 **2.5ms** vs **48ms** when counting every page). This is the optimization
+landed earlier on this branch.
 
-### 🟠 Page-1 `COUNT(*)` roughly doubles first-page latency
-The full-scan page-1 query costs **242ms p50**, of which the wrapping
-`SELECT COUNT(*) FROM (<query>)` is a large share (it re-scans the whole result
-set). This is the cost we intentionally keep only on page 1.
+### 🟠 Page-1 `COUNT(*)` — deferred (async total)
+The full-scan page-1 query costs ~**220ms p50**, much of it the wrapping
+`SELECT COUNT(*)`. A naive fix — running the count concurrently with the fetch —
+was implemented and measured, but it **doubles concurrent full scans under load
+and regressed the concurrency throughput we just fixed**, so it was reverted.
+The correct fix is a true *async total*: return rows immediately and push the
+count to the UI via an event once it lands. That requires frontend plumbing and
+is tracked as a follow-up.
 
-**Recommendation:** consider computing the page-1 total asynchronously (return
-rows immediately, stream the total in after) so first paint isn't blocked on the
-count.
-
-### 🟢 Pagination SkipCount optimization — validated
-Paging with the current `SkipCount` behaviour is **~14× faster per page**
-(p50 **3.6ms** vs **51ms** when counting every page). This is the optimization
-landed on this branch.
-
-### 🟠 Large result sets are fully materialized (no streaming)
-200k rows load in ~640ms and are held entirely in memory. There is no
-server-side streaming on the `ExecuteWithOptions` path; at higher scales this
-becomes a memory breakpoint.
-
-**Recommendation:** route large/export reads through the existing
-`ExecuteQueryStream` path rather than buffering the whole result set.
+### 🟠 Large result sets are fully materialized — follow-up (streaming)
+200k rows load in ~0.7–1.5s and are held entirely in memory; there is no
+server-side streaming on `ExecuteWithOptions`. At higher scales this is a memory
+breakpoint. The engine already exposes `ExecuteQueryStream`/`ExecuteStream`;
+the follow-up is to route large/export reads (and optionally results above a row
+threshold) through it and render incrementally on the frontend.
 
 ### 🟢 Normalization fast path — healthy
 Normalizing 100k cells (incl. JSON payloads) stays ~30ms with negligible
 retained heap, confirming the in-place normalization + JSON-skip changes hold up.
+
+## Other issues noted along the way (follow-ups)
+
+- **Unindexed filters don't scale.** Every `WHERE`/`ORDER BY` on a non-indexed
+  column is a full scan that collapses under concurrency. For the app's *own*
+  storage tables, ensure indexes exist; for user-connected databases, consider
+  surfacing an EXPLAIN / "add index" hint in the UI.
+- **Other SQLite open sites.** The team/sync DB in `pkg/storage/manager.go`
+  opens via a raw URL without the WAL/private-cache treatment applied here —
+  worth aligning if it sees concurrent access.
+- **Dead code in `pkg/database/normalizer.go`.** `ApplyPagination` and
+  `ExtractTotalCount` appear unused (the engines build their own LIMIT/count);
+  candidates for removal.
+- **`Factory.ValidateConfig` is unreferenced** in the connect path — validation
+  is effectively only the DSN build. Either wire it in or drop it.
+
+> Scope note: the in-process run exercises SQLite. The Postgres/MySQL engines
+> share the same `executeSelect` shape (count → fetch → normalize), so the
+> *relative* findings (COUNT cost, SkipCount win, normalization cost) generalize;
+> use the docker kit to confirm absolute numbers on real servers.
