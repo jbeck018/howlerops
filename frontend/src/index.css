@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@fontsource-variable/fira-code";
+@import "@fontsource-variable/inter";
 
 @plugin "tailwindcss-animate";
 
@@ -18,12 +19,12 @@
     border-color: var(--color-border);
   }
   html {
-    font-size: 14.4px; /* 10% smaller than default 16px */
+    font-size: 13px; /* denser UI; see --font-sans (Inter) for chrome, --font-mono (Fira Code) for code */
   }
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
-    font-family: "Fira Code Variable", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-family: var(--font-sans);
     line-height: 1.5;
     font-weight: 400;
     font-synthesis: none;
@@ -34,6 +35,10 @@
     min-width: 320px;
     min-height: 100vh;
     letter-spacing: var(--tracking-normal);
+  }
+  /* Keep code, the SQL editor, and result/data surfaces monospaced for alignment */
+  code, pre, kbd, samp, .monaco-editor, .cm-editor, .cm-content, .font-mono {
+    font-family: var(--font-mono);
   }
 
   #root {
@@ -129,8 +134,8 @@
   --sidebar-accent-foreground: oklch(0.6521 0.1322 81.5716);
   --sidebar-border: oklch(0.9431 0 0);
   --sidebar-ring: oklch(0.7516 0.1469 83.9881);
-  --font-sans: "Fira Code Variable", "Fira Code", ui-monospace, monospace;
-  --font-serif: "Fira Code Variable", "Fira Code", ui-monospace, monospace;
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Fira Code Variable", "Fira Code", ui-monospace, monospace;
   --radius: 0.5rem;
   --shadow-x: 0px;
@@ -184,8 +189,8 @@
   --sidebar-accent-foreground: oklch(0.8868 0.1822 95.3305);
   --sidebar-border: oklch(0.2393 0 0);
   --sidebar-ring: oklch(0.7516 0.1469 83.9881);
-  --font-sans: "Fira Code Variable", "Fira Code", ui-monospace, monospace;
-  --font-serif: "Fira Code Variable", "Fira Code", ui-monospace, monospace;
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Fira Code Variable", "Fira Code", ui-monospace, monospace;
   --radius: 0.5rem;
   --shadow-x: 0px;
