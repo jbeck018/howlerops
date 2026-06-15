@@ -158,7 +158,7 @@ func (h *harness) run(reportPath string) error {
 	if err := os.MkdirAll(filepath.Dir(reportPath), 0o755); err != nil {
 		return fmt.Errorf("create report dir: %w", err)
 	}
-	if err := os.WriteFile(reportPath, []byte(report), 0o644); err != nil {
+	if err := os.WriteFile(reportPath, []byte(report), 0o600); err != nil {
 		return fmt.Errorf("write report: %w", err)
 	}
 	fmt.Printf("\n📄 Report written to %s\n", reportPath)
@@ -250,6 +250,7 @@ func (h *harness) generate(ctx context.Context) error {
 	}
 
 	categories := []string{"alpha", "beta", "gamma", "delta", "epsilon"}
+	// #nosec G404 -- deterministic synthetic test data, not security-sensitive
 	rng := rand.New(rand.NewSource(42)) // deterministic dataset
 	base := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -451,6 +452,7 @@ func (h *harness) scenarioConcurrency(ctx context.Context) {
 		wg.Add(1)
 		go func(seed int) {
 			defer wg.Done()
+			// #nosec G404 -- synthetic load-test data, not security-sensitive
 			rng := rand.New(rand.NewSource(int64(seed)))
 			for i := 0; i < 25; i++ {
 				uid := rng.Intn(10_000)

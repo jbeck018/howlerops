@@ -237,12 +237,14 @@ func TestFactory_ValidateConfig(t *testing.T) {
 			errMsg:  "database type is required",
 		},
 		{
-			name: "missing database name",
+			name: "PostgreSQL without database is allowed (optional)",
 			config: database.ConnectionConfig{
-				Type: database.PostgreSQL,
+				Type:     database.PostgreSQL,
+				Host:     "localhost",
+				Port:     5432,
+				Username: "user",
 			},
-			wantErr: true,
-			errMsg:  "database name is required",
+			wantErr: false,
 		},
 		{
 			name: "PostgreSQL missing host",
