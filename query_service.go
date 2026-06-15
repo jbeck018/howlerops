@@ -69,6 +69,10 @@ func (s *QueryService) ExecuteQuery(req QueryRequest) (*QueryResponse, error) {
 		ReadOnly: false,
 		Limit:    limit,
 		Offset:   req.Offset, // NEW: Pass pagination offset
+		// Skip the expensive total-count query when paginating beyond the first
+		// page: the total does not change between pages and the client carries it
+		// forward, so re-counting on every page is wasted work.
+		SkipCount: req.Offset > 0,
 	}
 
 	result, err := s.deps.DatabaseService.ExecuteQuery(req.ConnectionID, req.Query, options)

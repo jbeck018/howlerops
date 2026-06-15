@@ -26,6 +26,12 @@ export interface QueryExecutionInput {
   limit: number
   offset: number
   timeout?: number
+  /**
+   * Total row count already known by the caller (e.g. from page 1). Used as a
+   * fallback when the backend skips the COUNT(*) on later pages of a paginated
+   * query, so the pagination controls keep an accurate total.
+   */
+  previousTotalRows?: number
 }
 
 export interface QueryExecutionFailure {
@@ -159,7 +165,7 @@ export function prepareQueryExecutionResult(
       editable: editableMetadata,
       query: input.query,
       connectionId: input.connectionId,
-      totalRows,
+      totalRows: totalRows ?? input.previousTotalRows,
       pagedRows,
       hasMore,
       offset: typeof offset === 'number' ? offset : input.offset,

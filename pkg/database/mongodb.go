@@ -424,9 +424,10 @@ func (m *MongoDBDatabase) executeSelectQuery(ctx context.Context, client *mongo.
 	db := client.Database(m.config.Database)
 	collection := db.Collection(collectionName)
 
-	// Step 1: Get total count if pagination is requested
+	// Step 1: Get total count if pagination is requested.
+	// Skip the count when the caller already knows the total (pagination).
 	var totalRows int64
-	if opts != nil && opts.Limit > 0 {
+	if opts != nil && opts.Limit > 0 && !opts.SkipCount {
 		count, err := collection.CountDocuments(ctx, filter)
 		if err != nil {
 			m.logger.WithError(err).Warn("Failed to get total count for pagination")

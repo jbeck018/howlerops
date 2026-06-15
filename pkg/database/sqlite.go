@@ -210,13 +210,16 @@ func (s *SQLiteDatabase) executeSelect(ctx context.Context, db *sql.DB, query st
 				modifiedQuery = fmt.Sprintf("%s LIMIT 0", queryWithoutLimit)
 			}
 		} else {
-			// No user LIMIT - get total count and apply pagination
-			// #nosec G201 - queryWithoutLimit is the user's SELECT query which will be executed with parameterized args
-			countQuery := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS count_subquery", queryWithoutLimit)
-			err := db.QueryRowContext(ctx, countQuery, args...).Scan(&totalRows)
-			if err != nil {
-				s.logger.WithError(err).Warn("Failed to get total count for pagination")
-				totalRows = 0
+			// No user LIMIT - get total count and apply pagination.
+			// Skip the count when the caller already knows the total (pagination).
+			if !opts.SkipCount {
+				// #nosec G201 - queryWithoutLimit is the user's SELECT query which will be executed with parameterized args
+				countQuery := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS count_subquery", queryWithoutLimit)
+				err := db.QueryRowContext(ctx, countQuery, args...).Scan(&totalRows)
+				if err != nil {
+					s.logger.WithError(err).Warn("Failed to get total count for pagination")
+					totalRows = 0
+				}
 			}
 
 			modifiedQuery = fmt.Sprintf("%s LIMIT %d", queryWithoutLimit, opts.Limit)
