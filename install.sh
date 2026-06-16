@@ -55,18 +55,20 @@ fi
 # Utility Functions
 # ============================================================================
 
+# Informational logs go to stderr so that functions whose stdout is captured
+# via $(...) (e.g. get_latest_version) are never polluted by log output.
 log() {
-    echo "${BLUE}[INFO]${RESET} $*"
+    echo "${BLUE}[INFO]${RESET} $*" >&2
 }
 
 log_verbose() {
     if [ "$VERBOSE" -eq 1 ]; then
-        echo "${CYAN}[VERBOSE]${RESET} $*"
+        echo "${CYAN}[VERBOSE]${RESET} $*" >&2
     fi
 }
 
 log_success() {
-    echo "${GREEN}[SUCCESS]${RESET} $*"
+    echo "${GREEN}[SUCCESS]${RESET} $*" >&2
 }
 
 log_warn() {
