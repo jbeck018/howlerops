@@ -73,6 +73,10 @@ export interface DatabaseConnection {
 
 interface ConnectionState {
   connections: DatabaseConnection[]
+  // IDs the user explicitly deleted. Persisted so a connection that still
+  // lingers in SQLite (e.g. a delete that didn't land) is never resurrected by
+  // initializeConnectionStore. Pruned once the SQLite row is gone.
+  deletedConnectionIds: string[]
   activeConnection: DatabaseConnection | null
   lastActiveConnectionId: string | null // Track last active connection for auto-reconnect
   autoConnectEnabled: boolean
@@ -141,6 +145,7 @@ export const useConnectionStore = create<ConnectionState>()(
     persist(
       (set, get) => ({
         connections: [],
+        deletedConnectionIds: [],
         activeConnection: null,
         lastActiveConnectionId: null,
         autoConnectEnabled: true,
@@ -199,6 +204,8 @@ export const useConnectionStore = create<ConnectionState>()(
 
           set((state) => ({
             connections: [...state.connections, safeConnection],
+            // Clear any stale tombstone for this id (defensive; ids are uuids).
+            deletedConnectionIds: state.deletedConnectionIds.filter((delId) => delId !== newConnection.id),
           }))
 
           // Persist to SQLite for cross-origin durability
@@ -272,11 +279,17 @@ export const useConnectionStore = create<ConnectionState>()(
 
           set((state) => ({
             connections: state.connections.filter((conn) => conn.id !== id),
+            // Tombstone the id so a missed SQLite delete can't resurrect it.
+            deletedConnectionIds: state.deletedConnectionIds.includes(id)
+              ? state.deletedConnectionIds
+              : [...state.deletedConnectionIds, id],
             activeConnection: state.activeConnection?.id === id ? null : state.activeConnection,
           }))
 
-          // Remove from SQLite
-          removeConnectionFromSQLite(id)
+          // Remove from SQLite — await so the delete actually lands before we
+          // consider the operation done (it used to be fire-and-forget, which
+          // raced with app shutdown and left rows behind to be resurrected).
+          await removeConnectionFromSQLite(id)
         },
 
         setActiveConnection: (connection) => {
@@ -575,6 +588,7 @@ export const useConnectionStore = create<ConnectionState>()(
               } : undefined
             }
           }),
+          deletedConnectionIds: state.deletedConnectionIds,
           lastActiveConnectionId: state.lastActiveConnectionId,
           autoConnectEnabled: state.autoConnectEnabled,
           activeEnvironmentFilter: state.activeEnvironmentFilter,
@@ -633,6 +647,9 @@ export async function initializeConnectionStore() {
       if (sqliteConnections && sqliteConnections.length > 0) {
         const currentState = useConnectionStore.getState()
         const existingIds = new Set(currentState.connections.map(c => c.id))
+        // Never restore a connection the user deleted, even if its SQLite row
+        // is still around (a missed delete). Clean those rows up below.
+        const deletedIds = new Set(currentState.deletedConnectionIds)
         const newConnections: DatabaseConnection[] = sqliteConnections
           .filter((sc: {
             id: string
@@ -644,7 +661,7 @@ export async function initializeConnectionStore() {
             username?: string
             ssl_config?: { mode?: string }
             environments?: string[]
-          }) => !existingIds.has(sc.id))
+          }) => !existingIds.has(sc.id) && !deletedIds.has(sc.id))
           .map((sc: {
             id: string
             name: string
@@ -679,6 +696,17 @@ export async function initializeConnectionStore() {
         const sqliteIds = new Set(sqliteConnections.map((sc: { id: string }) => sc.id))
         for (const conn of useConnectionStore.getState().connections) {
           if (!sqliteIds.has(conn.id)) syncConnectionToSQLite(conn)
+        }
+
+        // Re-delete any tombstoned ids whose SQLite row survived a missed
+        // delete, then prune tombstones that are confirmed gone from SQLite so
+        // the list can't grow forever.
+        for (const delId of deletedIds) {
+          if (sqliteIds.has(delId)) void removeConnectionFromSQLite(delId)
+        }
+        const prunedTombstones = currentState.deletedConnectionIds.filter((delId) => sqliteIds.has(delId))
+        if (prunedTombstones.length !== currentState.deletedConnectionIds.length) {
+          useConnectionStore.setState({ deletedConnectionIds: prunedTombstones })
         }
       } else {
         // SQLite is empty — seed it from localStorage connections
