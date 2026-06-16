@@ -107,13 +107,19 @@ jobs:
             CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
           fi
 
-          # Create release notes file
-          cat > release_notes.md <<'EOF'
-          ## Howlerops Backend v${{ steps.get_version.outputs.version }}
+          # Create release notes. The changelog is written via echo so the shell
+          # variable expands; the static part stays in a quoted heredoc so its
+          # markdown backticks survive (the ${{ }} expressions are substituted by
+          # Actions before the shell runs, so they work inside the quoted heredoc).
+          {
+            echo "## Howlerops Backend v${{ steps.get_version.outputs.version }}"
+            echo ""
+            echo "### Changes"
+            echo "$CHANGELOG"
+            echo ""
+          } > release_notes.md
 
-          ### Changes
-          ${CHANGELOG}
-
+          cat >> release_notes.md <<'EOF'
           ### Installation
 
           Download the appropriate binary for your platform:
