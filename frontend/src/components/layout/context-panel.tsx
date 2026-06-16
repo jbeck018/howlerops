@@ -20,7 +20,7 @@ export function ContextPanel() {
   if (pathname.startsWith("/dashboard")) {
     // Queries route: open-tabs list stacked above the connections panel.
     return (
-      <div className="flex h-full min-h-0 w-56 flex-shrink-0 flex-col border-r bg-background/95">
+      <div className="flex h-full min-h-0 flex-col">
         <OpenTabsList />
         <div className="flex-1 min-h-0">
           <Sidebar />

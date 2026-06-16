@@ -30,7 +30,7 @@ export function OpenTabsList() {
   )
 
   return (
-    <div className="flex flex-col border-b max-h-[45%] flex-shrink-0">
+    <div className="flex w-56 flex-shrink-0 flex-col border-b border-r max-h-[45%] bg-background/95">
       <div className="flex items-center justify-between px-3 pt-3 pb-1">
         <div className="flex items-center gap-2 text-muted-foreground">
           <Terminal className="h-4 w-4" />

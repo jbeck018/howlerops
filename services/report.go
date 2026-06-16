@@ -432,8 +432,11 @@ func (s *ReportService) runComponentsParallel(
 		return results
 	}
 
-	// Phase 2: build a single read-only snapshot of completed results so LLM
-	// components can reference prior output without rebuilding a map per task.
+	// Phase 2: build a snapshot of completed query results, then run LLM
+	// components sequentially in their original order, folding each result back
+	// into the snapshot. This keeps LLM->query context deterministic AND lets an
+	// LLM component reference an earlier LLM component's output (the old single
+	// unordered pool satisfied LLM->LLM only by lucky scheduling).
 	prior := make(map[string]ReportComponentResult, len(results))
 	for _, res := range results {
 		if res.ComponentID != "" {
@@ -441,11 +444,15 @@ func (s *ReportService) runComponentsParallel(
 		}
 	}
 
-	s.runTasks(llmTasks, results, func(task componentTask) ReportComponentResult {
+	for _, task := range llmTasks {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		return s.runComponentWithTimeout(ctx, report, task.component, task.filters, prior)
-	})
+		res := s.runComponentWithTimeout(ctx, report, task.component, task.filters, prior)
+		cancel()
+		results[task.index] = res
+		if res.ComponentID != "" {
+			prior[res.ComponentID] = res
+		}
+	}
 
 	return results
 }
