@@ -214,13 +214,16 @@ func (m *MySQLDatabase) executeSelect(ctx context.Context, db *sql.DB, query str
 				modifiedQuery = fmt.Sprintf("%s LIMIT 0", queryWithoutLimit)
 			}
 		} else {
-			// No user LIMIT - get total count and apply pagination
-			// #nosec G201 - queryWithoutLimit is the user's SELECT query which will be executed with parameterized args
-			countQuery := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS count_subquery", queryWithoutLimit)
-			err := db.QueryRowContext(ctx, countQuery, args...).Scan(&totalRows)
-			if err != nil {
-				m.logger.WithError(err).Warn("Failed to get total count for pagination")
-				totalRows = 0
+			// No user LIMIT - get total count and apply pagination.
+			// Skip the count when the caller already knows the total (pagination).
+			if !opts.SkipCount {
+				// #nosec G201 - queryWithoutLimit is the user's SELECT query which will be executed with parameterized args
+				countQuery := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS count_subquery", queryWithoutLimit)
+				err := db.QueryRowContext(ctx, countQuery, args...).Scan(&totalRows)
+				if err != nil {
+					m.logger.WithError(err).Warn("Failed to get total count for pagination")
+					totalRows = 0
+				}
 			}
 
 			modifiedQuery = fmt.Sprintf("%s LIMIT %d", queryWithoutLimit, opts.Limit)
@@ -284,13 +287,12 @@ func (m *MySQLDatabase) executeSelect(ctx context.Context, db *sql.DB, query str
 			}
 		}
 
-		// NEW: Normalize each value
-		normalizedRow := make([]interface{}, len(values))
-		for i, val := range values {
-			normalizedRow[i] = NormalizeValue(val)
+		// Normalize each value in place to avoid a second per-row allocation.
+		for i := range values {
+			values[i] = NormalizeValue(values[i])
 		}
 
-		result.Rows = append(result.Rows, normalizedRow)
+		result.Rows = append(result.Rows, values)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -306,7 +308,13 @@ func (m *MySQLDatabase) executeSelect(ctx context.Context, db *sql.DB, query str
 		result.TotalRows = totalRows
 		result.PagedRows = int64(len(result.Rows))
 		result.Offset = opts.Offset
-		result.HasMore = (int64(opts.Offset) + result.PagedRows) < totalRows
+		if opts.SkipCount {
+			// Total is unknown when the count is skipped (pagination); infer
+			// "more" from a full page so next-page navigation keeps working.
+			result.HasMore = result.PagedRows >= int64(opts.Limit)
+		} else {
+			result.HasMore = (int64(opts.Offset) + result.PagedRows) < totalRows
+		}
 	}
 
 	// PRESERVED: Editable metadata detection logic

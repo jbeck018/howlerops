@@ -178,6 +178,15 @@ func (m *Manager) CreateConnection(ctx context.Context, config ConnectionConfig)
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
+	// When the user connected without choosing a database, record the one the
+	// server actually placed us on (the maintenance database) so the UI can show
+	// it as the active database and switch away from it (pgAdmin-style).
+	if strings.TrimSpace(config.Database) == "" {
+		if current := currentDatabaseName(ctx, db); current != "" {
+			config.Database = current
+		}
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -619,15 +628,30 @@ func (f *Factory) CreateDatabase(config ConnectionConfig) (Database, error) {
 	}
 }
 
+// currentDatabaseName returns the database the connection is currently using, or
+// "" if it cannot be determined. Used to surface the maintenance database the
+// server selected when the user connected without choosing one.
+func currentDatabaseName(ctx context.Context, db Database) string {
+	info, err := db.GetConnectionInfo(ctx)
+	if err != nil {
+		return ""
+	}
+	if name, ok := info["database"].(string); ok {
+		return strings.TrimSpace(name)
+	}
+	return ""
+}
+
 // ValidateConfig validates a database configuration
 func (f *Factory) ValidateConfig(config ConnectionConfig) error {
 	if config.Type == "" {
 		return fmt.Errorf("database type is required")
 	}
 
-	if config.Database == "" {
-		return fmt.Errorf("database name is required")
-	}
+	// Database is optional for server-based engines: when blank we connect via a
+	// maintenance database and let the user choose the working database after
+	// connecting (pgAdmin-style). SQLite still requires its file path (enforced
+	// in its case below).
 
 	switch config.Type {
 	case PostgreSQL, MySQL, MariaDB, ClickHouse, TiDB:

@@ -283,14 +283,17 @@ func (es *ElasticsearchDatabase) ExecuteWithOptions(ctx context.Context, query s
 				modifiedQuery = fmt.Sprintf("%s LIMIT 0", queryWithoutLimit)
 			}
 		} else {
-			// No user LIMIT - get total count and apply pagination
-			countQuery := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS count_subquery", queryWithoutLimit)
-			countResult, err := es.executeCountQuery(ctx, countQuery, args)
-			if err != nil {
-				es.logger.WithError(err).Warn("Failed to get total count for pagination")
-				totalRows = 0
-			} else {
-				totalRows = countResult
+			// No user LIMIT - get total count and apply pagination.
+			// Skip the count when the caller already knows the total (pagination).
+			if !opts.SkipCount {
+				countQuery := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS count_subquery", queryWithoutLimit)
+				countResult, err := es.executeCountQuery(ctx, countQuery, args)
+				if err != nil {
+					es.logger.WithError(err).Warn("Failed to get total count for pagination")
+					totalRows = 0
+				} else {
+					totalRows = countResult
+				}
 			}
 
 			modifiedQuery = fmt.Sprintf("%s LIMIT %d", queryWithoutLimit, opts.Limit)
@@ -424,7 +427,13 @@ func (es *ElasticsearchDatabase) ExecuteWithOptions(ctx context.Context, query s
 		result.TotalRows = totalRows
 		result.PagedRows = int64(len(result.Rows))
 		result.Offset = opts.Offset
-		result.HasMore = (int64(opts.Offset) + result.PagedRows) < totalRows
+		if opts.SkipCount {
+			// Total is unknown when the count is skipped (pagination); infer
+			// "more" from a full page so next-page navigation keeps working.
+			result.HasMore = result.PagedRows >= int64(opts.Limit)
+		} else {
+			result.HasMore = (int64(opts.Offset) + result.PagedRows) < totalRows
+		}
 	}
 
 	// Elasticsearch indices are not directly editable

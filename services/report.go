@@ -345,7 +345,7 @@ func (s *ReportService) RunReport(req *ReportRunRequest) (*ReportRunResponse, er
 	}
 
 	// Execute components in parallel
-	results, _ := s.runComponentsParallel(report, componentsToRun, req.FilterValues)
+	results := s.runComponentsParallel(report, componentsToRun, req.FilterValues)
 
 	resp := &ReportRunResponse{
 		ReportID:    report.ID,
@@ -390,48 +390,101 @@ func (s *ReportService) RunReport(req *ReportRunRequest) (*ReportRunResponse, er
 
 // componentTask represents a component execution task
 type componentTask struct {
-	component  *storage.ReportComponent
-	index      int // original index for ordering
-	filters    map[string]interface{}
-	resultChan chan<- componentTaskResult
+	component *storage.ReportComponent
+	index     int // original index for ordering
+	filters   map[string]interface{}
 }
 
-// componentTaskResult represents the result of executing a component
-type componentTaskResult struct {
-	result ReportComponentResult
-	index  int
-}
-
-// runComponentsParallel executes components in parallel using a worker pool
+// runComponentsParallel executes query components concurrently, then LLM
+// components. Query components have no inter-dependencies, so they run in a
+// single worker-pool phase. LLM components may reference prior query output, so
+// they execute in a second phase against one immutable snapshot of the results —
+// avoiding the per-task index rebuild and guaranteeing their context is complete.
 func (s *ReportService) runComponentsParallel(
 	report *storage.Report,
 	components []*storage.ReportComponent,
 	filters map[string]interface{},
-) ([]ReportComponentResult, map[string]ReportComponentResult) {
+) []ReportComponentResult {
+	results := make([]ReportComponentResult, len(components))
 	if len(components) == 0 {
-		return []ReportComponentResult{}, map[string]ReportComponentResult{}
+		return results
 	}
 
-	// Create channels for tasks and results
-	taskChan := make(chan componentTask, len(components))
-	resultChan := make(chan componentTaskResult, len(components))
+	// Partition components into query vs LLM, preserving original indexes.
+	var queryTasks, llmTasks []componentTask
+	for i, component := range components {
+		task := componentTask{component: component, index: i, filters: filters}
+		if component.Type == storage.ReportComponentLLM {
+			llmTasks = append(llmTasks, task)
+		} else {
+			queryTasks = append(queryTasks, task)
+		}
+	}
 
-	// Create worker pool
-	var wg sync.WaitGroup
+	// Phase 1: query components (no shared dependencies).
+	s.runTasks(queryTasks, results, func(task componentTask) ReportComponentResult {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		return s.runComponentWithTimeout(ctx, report, task.component, task.filters, nil)
+	})
+
+	if len(llmTasks) == 0 {
+		return results
+	}
+
+	// Phase 2: build a snapshot of completed query results, then run LLM
+	// components sequentially in their original order, folding each result back
+	// into the snapshot. This keeps LLM->query context deterministic AND lets an
+	// LLM component reference an earlier LLM component's output (the old single
+	// unordered pool satisfied LLM->LLM only by lucky scheduling).
+	prior := make(map[string]ReportComponentResult, len(results))
+	for _, res := range results {
+		if res.ComponentID != "" {
+			prior[res.ComponentID] = res
+		}
+	}
+
+	for _, task := range llmTasks {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		res := s.runComponentWithTimeout(ctx, report, task.component, task.filters, prior)
+		cancel()
+		results[task.index] = res
+		if res.ComponentID != "" {
+			prior[res.ComponentID] = res
+		}
+	}
+
+	return results
+}
+
+// runTasks executes the supplied tasks across a bounded worker pool, writing
+// each result into results at the task's original index. Each index is written
+// by exactly one goroutine and only read after all workers finish, so no
+// locking is required.
+func (s *ReportService) runTasks(
+	tasks []componentTask,
+	results []ReportComponentResult,
+	exec func(componentTask) ReportComponentResult,
+) {
+	if len(tasks) == 0 {
+		return
+	}
+
 	workerCount := s.workerLimit
-	if len(components) < workerCount {
-		workerCount = len(components)
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	if len(tasks) < workerCount {
+		workerCount = len(tasks)
 	}
 
-	// Shared result index with mutex for LLM components that need prior results
-	resultIndex := &sync.Map{}
+	taskChan := make(chan componentTask, len(tasks))
+	var wg sync.WaitGroup
 
-	// Start workers
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer func() {
-				// Recover from panics in worker
 				if r := recover(); r != nil {
 					s.logger.WithFields(logrus.Fields{
 						"worker_id": workerID,
@@ -442,60 +495,16 @@ func (s *ReportService) runComponentsParallel(
 			}()
 
 			for task := range taskChan {
-				// Build result index from current results
-				localIndex := make(map[string]ReportComponentResult)
-				resultIndex.Range(func(key, value interface{}) bool {
-					localIndex[key.(string)] = value.(ReportComponentResult)
-					return true
-				})
-
-				// Execute component with timeout
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-				result := s.runComponentWithTimeout(ctx, report, task.component, task.filters, localIndex)
-				cancel()
-
-				// Store result in shared index
-				resultIndex.Store(task.component.ID, result)
-
-				// Send result
-				task.resultChan <- componentTaskResult{
-					result: result,
-					index:  task.index,
-				}
+				results[task.index] = exec(task)
 			}
 		}(i)
 	}
 
-	// Queue all tasks
-	for i, component := range components {
-		taskChan <- componentTask{
-			component:  component,
-			index:      i,
-			filters:    filters,
-			resultChan: resultChan,
-		}
+	for _, task := range tasks {
+		taskChan <- task
 	}
 	close(taskChan)
-
-	// Wait for all workers to finish
-	go func() {
-		wg.Wait()
-		close(resultChan)
-	}()
-
-	// Collect results maintaining order
-	resultSlice := make([]ReportComponentResult, len(components))
-	for taskResult := range resultChan {
-		resultSlice[taskResult.index] = taskResult.result
-	}
-
-	// Build final result index
-	finalIndex := make(map[string]ReportComponentResult)
-	for _, res := range resultSlice {
-		finalIndex[res.ComponentID] = res
-	}
-
-	return resultSlice, finalIndex
+	wg.Wait()
 }
 
 // runComponentWithTimeout executes a component with panic recovery
@@ -600,63 +609,40 @@ func (s *ReportService) runQueryComponent(report *storage.Report, component *sto
 		}
 	}
 
-	// First, get total count without limit (with upper bound check)
-	countSQL := fmt.Sprintf("SELECT COUNT(*) as total_count FROM (%s) AS count_subquery", sqlText)
-	countOpts := &database.QueryOptions{
-		Timeout:  60 * time.Second,
-		ReadOnly: true,
-		Limit:    1, // Only need one row for count
-	}
-
-	started := time.Now()
-	countResult, err := s.db.ExecuteQuery(queryConfig.ConnectionID, countSQL, countOpts)
-	if err != nil {
-		// If count query fails, continue with limited query but log warning
-		s.logger.WithFields(logrus.Fields{
-			"component_id": component.ID,
-			"error":        err.Error(),
-		}).Warn("Failed to get total count, proceeding with limited query")
-	}
-
-	var totalRows int64
-	if countResult != nil && len(countResult.Rows) > 0 && len(countResult.Rows[0]) > 0 {
-		// Extract count from result
-		switch v := countResult.Rows[0][0].(type) {
-		case int64:
-			totalRows = v
-		case int:
-			totalRows = int64(v)
-		case float64:
-			totalRows = int64(v)
-		}
-
-		// Check if total exceeds limit
-		if totalRows > int64(limit) {
-			res.Error = fmt.Sprintf(
-				"Query returned %d rows but limit is %d. Please add WHERE clause or increase limit in component settings (max %d).",
-				totalRows, limit, maxLimit,
-			)
-			res.TotalRows = totalRows
-			res.LimitedRows = 0
-			return res
-		}
-	}
-
-	// Execute main query with limit
+	// Execute the query once. The database layer applies the LIMIT and, in the
+	// same call, reports the full TotalRows count and HasMore flag, so a separate
+	// SELECT COUNT(*) round-trip is unnecessary. (Most drivers can't batch a
+	// count + select into a single statement anyway, and an unbounded count
+	// re-scans the entire result set — doubling latency for local execution.)
 	opts := &database.QueryOptions{
 		Timeout:  60 * time.Second,
 		ReadOnly: true,
 		Limit:    limit,
 	}
 
+	started := time.Now()
 	result, err := s.db.ExecuteQuery(queryConfig.ConnectionID, sqlText, opts)
 	if err != nil {
 		res.Error = err.Error()
 		res.DurationMS = int64(time.Since(started).Milliseconds())
 		return res
 	}
-
 	res.DurationMS = int64(time.Since(started).Milliseconds())
+
+	// Reject result sets that exceed the configured limit, using the total count
+	// the driver already computed (no extra query). A zero total means the driver
+	// could not determine the count, in which case we return the limited rows.
+	totalRows := result.TotalRows
+	if totalRows > int64(limit) {
+		res.Error = fmt.Sprintf(
+			"Query returned %d rows but limit is %d. Please add WHERE clause or increase limit in component settings (max %d).",
+			totalRows, limit, maxLimit,
+		)
+		res.TotalRows = totalRows
+		res.LimitedRows = 0
+		return res
+	}
+
 	res.Columns = result.Columns
 	res.Rows = result.Rows
 	res.RowCount = result.RowCount

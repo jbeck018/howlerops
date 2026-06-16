@@ -68,7 +68,7 @@ type ConnectionConfig struct {
 	Type              DatabaseType      `json:"type" validate:"required"`
 	Host              string            `json:"host"`
 	Port              int               `json:"port"`
-	Database          string            `json:"database" validate:"required"`
+	Database          string            `json:"database"` // optional; blank connects via a maintenance DB (see maintenanceDatabase)
 	Username          string            `json:"username"`
 	Password          string            `json:"password"`
 	SSLMode           string            `json:"ssl_mode"`
@@ -261,6 +261,7 @@ type QueryOptions struct {
 	IncludeSchema bool          `json:"include_schema"`
 	StreamingMode bool          `json:"streaming_mode"`
 	BatchSize     int           `json:"batch_size"`
+	SkipCount     bool          `json:"skip_count"` // Skip the COUNT(*) total query (e.g. when paginating beyond page 1 and the total is already known)
 }
 
 // StreamCallback is a function type for handling streaming query results

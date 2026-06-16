@@ -1,0 +1,47 @@
+# Dockerized server-DB stress kit for the loadtest harness.
+#
+#   docker compose -f docs/performance/docker-compose.loadtest.yml up -d
+#   go run ./cmd/loadtest --engine postgres --scale large
+#   go run ./cmd/loadtest --engine mysql    --scale large
+#   docker compose -f docs/performance/docker-compose.loadtest.yml down -v
+#
+# Credentials match the harness defaults (user/password/db = loadtest).
+services:
+  loadtest-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: loadtest
+      POSTGRES_PASSWORD: loadtest
+      POSTGRES_DB: loadtest
+    ports:
+      - "5432:5432"
+    # Modest tuning so the server isn't the artificial bottleneck.
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "max_connections=100"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loadtest"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  loadtest-mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: loadtest
+      MYSQL_DATABASE: loadtest
+      MYSQL_USER: loadtest
+      MYSQL_PASSWORD: loadtest
+    ports:
+      - "3306:3306"
+    command:
+      - "--max_connections=200"
+      - "--innodb_buffer_pool_size=256M"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uloadtest", "-ploadtest"]
+      interval: 3s
+      timeout: 3s
+      retries: 30

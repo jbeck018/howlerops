@@ -277,9 +277,13 @@ func NewLocalStorage(config *LocalStorageConfig, logger *logrus.Logger) (*LocalS
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	// Open main database
+	// Open main database.
+	// Use a private page cache (no cache=shared) so concurrent readers run in
+	// parallel under WAL — shared-cache mode serializes readers behind a
+	// table-level lock, which collapses throughput under load. _busy_timeout
+	// lets the occasional writer wait for a lock instead of failing immediately.
 	dbPath := filepath.Join(dataDir, config.Database)
-	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?cache=shared&mode=rwc&_journal_mode=WAL", dbPath))
+	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?mode=rwc&_journal_mode=WAL&_busy_timeout=5000", dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

@@ -5,3 +5,10 @@ sessions/
 neural/
 *.log
 *.tmp
+
+# Daemon runtime state (rewritten continuously by the running daemon)
+daemon.pid
+daemon-state.json
+
+# Generated metrics snapshots (the daemon rewrites/creates these every run)
+metrics/

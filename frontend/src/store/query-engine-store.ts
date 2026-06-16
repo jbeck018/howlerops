@@ -214,6 +214,12 @@ export const useQueryEngineStore = create<QueryEngineState>()(
               offset
             )
 
+            // On pages past the first the backend skips the COUNT(*), so carry
+            // the total forward from the previous result for this tab.
+            const previousTotalRows = offset > 0
+              ? historyStore.getLatestResult(tabId)?.totalRows
+              : undefined
+
             const prepared = prepareQueryExecutionResult(
               {
                 tabId,
@@ -222,6 +228,7 @@ export const useQueryEngineStore = create<QueryEngineState>()(
                 sessionId: resolved.sessionId,
                 limit,
                 offset,
+                previousTotalRows,
               },
               response
             )

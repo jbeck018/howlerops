@@ -209,16 +209,19 @@ export const buildConnectionPayload = (formData: ConnectionFormData): Connection
  * Gets the database label for display
  */
 export const getDatabaseLabel = (type: DatabaseTypeString): string => {
-  if (type === 'mongodb') return 'Database (optional)'
   if (type === 'elasticsearch' || type === 'opensearch') return 'Index Pattern (optional)'
-  return 'Database'
+  if (type === 'sqlite') return 'Database File'
+  return 'Database (optional)'
 }
 
 /**
- * Checks if database field is required for the given type
+ * Checks if database field is required for the given type.
+ * Only SQLite needs it (the database is a file path). Server-based engines
+ * connect via a maintenance database when blank, and the working database can
+ * be chosen after connecting (pgAdmin-style).
  */
 export const isDatabaseRequired = (type: DatabaseTypeString): boolean => {
-  return type !== 'mongodb' && type !== 'elasticsearch' && type !== 'opensearch'
+  return type === 'sqlite'
 }
 
 /**
