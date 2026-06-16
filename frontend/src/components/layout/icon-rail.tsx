@@ -1,21 +1,41 @@
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { useLayoutStore } from "@/store/layout-store"
 
 import { NAV_ITEMS } from "./sidebar-nav"
 
 /**
  * VS Code-style 48px vertical icon rail. Renders NAV_ITEMS as icon-only
- * buttons with tooltips. Settings is pinned to the bottom.
+ * buttons with tooltips. Settings is pinned to the bottom. A panel toggle at
+ * the top collapses/expands the route-aware context panel (column 2).
  */
 export function IconRail() {
   const location = useLocation()
   const navigate = useNavigate()
+  const collapsed = useLayoutStore((state) => state.contextPanelCollapsed)
+  const toggleContextPanel = useLayoutStore((state) => state.toggleContextPanel)
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="w-12 flex-shrink-0 border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex flex-col items-stretch py-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-pressed={collapsed}
+              onClick={toggleContextPanel}
+              className="relative flex h-11 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            >
+              {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">{collapsed ? "Expand sidebar" : "Collapse sidebar"}</TooltipContent>
+        </Tooltip>
+
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon
           const isActive = location.pathname === item.path
