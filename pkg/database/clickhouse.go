@@ -290,7 +290,13 @@ func (c *ClickHouseDatabase) executeSelect(ctx context.Context, db *sql.DB, quer
 		result.TotalRows = totalRows
 		result.PagedRows = int64(len(result.Rows))
 		result.Offset = opts.Offset
-		result.HasMore = (int64(opts.Offset) + result.PagedRows) < totalRows
+		if opts.SkipCount {
+			// Total is unknown when the count is skipped (pagination); infer
+			// "more" from a full page so next-page navigation keeps working.
+			result.HasMore = result.PagedRows >= int64(opts.Limit)
+		} else {
+			result.HasMore = (int64(opts.Offset) + result.PagedRows) < totalRows
+		}
 	}
 
 	// PRESERVED: Editable metadata logic (ClickHouse tables are not directly editable)

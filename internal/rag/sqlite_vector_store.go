@@ -141,9 +141,15 @@ type SQLiteVectorStore struct {
 
 // NewSQLiteVectorStore creates a new SQLite vector store
 func NewSQLiteVectorStore(config *SQLiteVectorConfig, logger *logrus.Logger) (*SQLiteVectorStore, error) {
-	// Open SQLite database with a private page cache so concurrent readers run
-	// in parallel under WAL (shared-cache mode serializes readers).
-	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?mode=rwc", config.Path))
+	// Open SQLite with a private page cache so concurrent readers run in parallel
+	// under WAL (shared-cache mode serializes readers). A pure ":memory:" path is
+	// the exception: each pooled connection would otherwise get its own empty
+	// in-memory DB, so it must keep shared cache to see the same data.
+	dsn := fmt.Sprintf("%s?mode=rwc", config.Path)
+	if config.Path == ":memory:" {
+		dsn = ":memory:?cache=shared&mode=rwc"
+	}
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open SQLite database: %w", err)
 	}

@@ -131,7 +131,14 @@ function ConnectionRowImpl({
           size="sm"
           className="h-7 flex-1 justify-start overflow-hidden text-xs"
           disabled={isConnecting}
-          onClick={() => onSelect(connection)}
+          onClick={() => {
+            onSelect(connection)
+            // Re-clicking an already-active, connected row force-refreshes its
+            // database list (the auto-load effect only fires when isActive flips).
+            if (isActive && isConnected) {
+              void loadDatabases()
+            }
+          }}
         >
           <span className="truncate flex-1 text-left">{connection.name}</span>
           <span className="ml-1 inline-flex items-center flex-shrink-0">
