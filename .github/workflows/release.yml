@@ -193,14 +193,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS builds — each on its NATIVE runner so duckdb (CGO) links
-          # without cross-compilation (macos-latest is Apple Silicon, macos-13 is Intel).
-          - goos: darwin
-            goarch: amd64
-            os: macos-13
-            asset_name: howlerops-cli-darwin-amd64
-            platform: darwin-amd64
-
+          # macOS build on its NATIVE runner so duckdb (CGO) links without
+          # cross-compilation (macos-latest is Apple Silicon).
+          #
+          # NOTE: the Intel (amd64) build on macos-13 is temporarily disabled —
+          # macos-13 runners are scarce and the job sits queued for a long time,
+          # stalling the whole release. Re-add the darwin/amd64 entry here (and
+          # in build-howlerops) to restore Intel builds.
           - goos: darwin
             goarch: arm64
             os: macos-latest
@@ -379,17 +378,17 @@ jobs:
       contents: write
 
     strategy:
-      # Build each arch on its native runner so duckdb (CGO) links without
-      # cross-compilation — a universal/cross build can't link x86_64 duckdb on
-      # an Apple Silicon runner. macos-latest = Apple Silicon (arm64),
-      # macos-13 = Intel (amd64).
+      # Build on the native runner so duckdb (CGO) links without
+      # cross-compilation. macos-latest = Apple Silicon (arm64).
+      #
+      # NOTE: the Intel (amd64) build on macos-13 is temporarily disabled —
+      # macos-13 runners are scarce and the job sits queued for a long time,
+      # stalling the whole release. Re-add the amd64/macos-13 entry to restore.
       fail-fast: false
       matrix:
         include:
           - arch: arm64
             runner: macos-latest
-          - arch: amd64
-            runner: macos-13
 
     steps:
       - name: Checkout code
@@ -652,15 +651,17 @@ jobs:
           ls -lah
           echo ""
 
-          # Required artifacts — the desktop app bundles the curl installer needs.
+          # Required artifacts — the desktop app bundle the curl installer needs.
           REQUIRED=(
             "howlerops-darwin-arm64.tar.gz"
-            "howlerops-darwin-amd64.tar.gz"
           )
 
           # Optional artifacts (warn if missing) — server CLIs and checksums.
+          # The Intel (amd64) macOS builds are temporarily disabled, so the
+          # darwin-amd64 desktop/CLI bundles are expected to be absent.
           # linux-arm64 duckdb cross-linking can be flaky, so CLIs don't gate.
           OPTIONAL=(
+            "howlerops-darwin-amd64.tar.gz"
             "howlerops-cli-darwin-amd64.tar.gz"
             "howlerops-cli-darwin-arm64.tar.gz"
             "howlerops-cli-linux-amd64.tar.gz"
