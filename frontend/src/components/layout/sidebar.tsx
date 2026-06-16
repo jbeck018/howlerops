@@ -1,7 +1,6 @@
 import {
   ChevronDown,
   Database,
-  Filter,
   Loader2,
   Tag,
 } from "lucide-react"
@@ -10,12 +9,13 @@ import { createPortal } from "react-dom"
 import { useNavigate } from "react-router-dom"
 import { useShallow } from "zustand/react/shallow"
 
+import { UNASSIGNED_ENVIRONMENT_LABEL } from "@/components/connection-manager"
 import { ConnectionSchemaViewer } from "@/components/connection-schema-viewer"
 import { EnvironmentManager } from "@/components/environment-manager"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { groupConnectionsByEnvironment } from "@/lib/group-connections-by-environment"
 import { cn } from "@/lib/utils"
 import { type DatabaseConnection, useConnectionStore } from "@/store/connection-store"
 import { useQueryEditorStore } from "@/store/query-editor-store"
@@ -38,18 +38,14 @@ export function Sidebar() {
     setActiveConnection,
     connectToDatabase,
     isConnecting,
-    activeEnvironmentFilter,
     availableEnvironments,
-    setEnvironmentFilter,
   } = useConnectionStore(useShallow((state) => ({
     connections: state.connections,
     activeConnection: state.activeConnection,
     setActiveConnection: state.setActiveConnection,
     connectToDatabase: state.connectToDatabase,
     isConnecting: state.isConnecting,
-    activeEnvironmentFilter: state.activeEnvironmentFilter,
     availableEnvironments: state.availableEnvironments,
-    setEnvironmentFilter: state.setEnvironmentFilter,
   })))
   const { tabs, activeTabId, updateTab } = useQueryEditorStore(useShallow((state) => ({
     tabs: state.tabs,
@@ -68,16 +64,12 @@ export function Sidebar() {
     () => tabs.find(tab => tab.id === activeTabId),
     [tabs, activeTabId]
   )
-  const filteredConnections = useMemo(() => {
-    if (!activeEnvironmentFilter) {
-      return connections
-    }
-    return connections.filter((conn) =>
-      !conn.environments || conn.environments.length === 0
-        ? true
-        : conn.environments.includes(activeEnvironmentFilter)
-    )
-  }, [connections, activeEnvironmentFilter])
+  // Group connections into environment folders (shared with the connections
+  // page). Folders replace the old single-select environment filter.
+  const connectionGroups = useMemo(
+    () => groupConnectionsByEnvironment(connections, availableEnvironments, UNASSIGNED_ENVIRONMENT_LABEL),
+    [connections, availableEnvironments]
+  )
 
   const handleConnectionSelect = useCallback(async (connection: DatabaseConnection) => {
     if (connection.sessionId) {
@@ -119,6 +111,28 @@ export function Sidebar() {
     setDiagramConnectionId(connectionId)
   }, [])
 
+  const renderConnectionRow = useCallback((connection: DatabaseConnection) => {
+    const isInActiveTab = Boolean(activeTab && (
+      activeTab.connectionId === connection.id ||
+      (activeTab.selectedConnectionIds?.includes(connection.id) ?? false)
+    ))
+    return (
+      <ConnectionRow
+        key={connection.id}
+        connection={connection}
+        isActive={activeConnection?.id === connection.id}
+        isPending={connectingId === connection.id}
+        isConnecting={isConnecting}
+        isInActiveTab={isInActiveTab}
+        hasActiveTab={Boolean(activeTab)}
+        onSelect={handleConnectionSelect}
+        onAddToQueryTab={handleAddToQueryTab}
+        onViewSchema={handleViewSchema}
+        onViewDiagram={handleViewDiagram}
+      />
+    )
+  }, [activeTab, activeConnection?.id, connectingId, isConnecting, handleConnectionSelect, handleAddToQueryTab, handleViewSchema, handleViewDiagram])
+
   return (
     <div className="w-56 border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0 flex flex-col">
       <ScrollArea className="flex-1">
@@ -136,62 +150,26 @@ export function Sidebar() {
             </CollapsibleTrigger>
 
             <CollapsibleContent className="space-y-1 mt-1">
-              {/* Environment Filter */}
-              {availableEnvironments.length > 0 && (
-                <div className="px-1 mb-2 flex gap-1">
-                  <Select
-                    value={activeEnvironmentFilter || "__all__"}
-                    onValueChange={(value) => setEnvironmentFilter(value === "__all__" ? null : value)}
-                  >
-                    <SelectTrigger className="h-7 text-xs flex-1">
-                      <div className="flex items-center gap-1">
-                        <Filter className="h-3 w-3" />
-                        <SelectValue placeholder="All Envs" />
-                      </div>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">All Environments</SelectItem>
-                      {availableEnvironments.map((env) => (
-                        <SelectItem key={env} value={env}>
-                          {env}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              {/* Manage environments (tags drive the folders below) */}
+              {connections.length > 0 && (
+                <div className="px-1 mb-1">
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 w-7 p-0"
+                    className="h-7 w-full justify-start px-2 text-xs text-muted-foreground"
                     onClick={() => setShowEnvironmentManager(true)}
                     title="Manage environments"
                   >
-                    <Tag className="h-3 w-3" />
+                    <Tag className="h-3 w-3 mr-1.5" />
+                    {availableEnvironments.length > 0 ? "Manage environments" : "Add environments"}
                   </Button>
                 </div>
               )}
 
-              {/* Manage Environments button when no environments exist */}
-              {availableEnvironments.length === 0 && connections.length > 0 && (
-                <div className="px-1 mb-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full h-7 text-xs"
-                    onClick={() => setShowEnvironmentManager(true)}
-                  >
-                    <Tag className="h-3 w-3 mr-1" />
-                    Add Environments
-                  </Button>
-                </div>
-              )}
-
-              {/* Connection List */}
+              {/* Connection list — grouped into environment folders when any
+                  environments exist, otherwise a flat list. */}
               <div className="space-y-1 px-1">
-                {filteredConnections.length === 0 && connections.length > 0 ? (
-                  <div className="text-xs text-muted-foreground text-center py-3">
-                    No connections for this environment
-                  </div>
-                ) : filteredConnections.length === 0 ? (
+                {connections.length === 0 ? (
                   <div className="text-xs text-muted-foreground text-center py-3">
                     <p>No connections</p>
                     <Button
@@ -203,28 +181,18 @@ export function Sidebar() {
                       Add one
                     </Button>
                   </div>
+                ) : availableEnvironments.length === 0 ? (
+                  connections.map(renderConnectionRow)
                 ) : (
-                  filteredConnections.map((connection) => {
-                    const isInActiveTab = Boolean(activeTab && (
-                      activeTab.connectionId === connection.id ||
-                      (activeTab.selectedConnectionIds?.includes(connection.id) ?? false)
-                    ))
-                    return (
-                      <ConnectionRow
-                        key={connection.id}
-                        connection={connection}
-                        isActive={activeConnection?.id === connection.id}
-                        isPending={connectingId === connection.id}
-                        isConnecting={isConnecting}
-                        isInActiveTab={isInActiveTab}
-                        hasActiveTab={Boolean(activeTab)}
-                        onSelect={handleConnectionSelect}
-                        onAddToQueryTab={handleAddToQueryTab}
-                        onViewSchema={handleViewSchema}
-                        onViewDiagram={handleViewDiagram}
-                      />
-                    )
-                  })
+                  connectionGroups.map((group) => (
+                    <ConnectionFolder
+                      key={group.key}
+                      label={group.label}
+                      count={group.connections.length}
+                    >
+                      {group.connections.map(renderConnectionRow)}
+                    </ConnectionFolder>
+                  ))
                 )}
               </div>
             </CollapsibleContent>
@@ -266,5 +234,39 @@ export function Sidebar() {
         />
       )}
     </div>
+  )
+}
+
+/**
+ * Collapsible environment folder for the connections sidebar. Defaults to open;
+ * collapse state is local (per session) so users can tuck away environments
+ * they aren't using.
+ */
+function ConnectionFolder({
+  label,
+  count,
+  children,
+}: {
+  label: string
+  count: number
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(true)
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between rounded px-1.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+        >
+          <span className="flex items-center gap-1 min-w-0">
+            <ChevronDown className={cn("h-3 w-3 flex-shrink-0 transition-transform", !open && "-rotate-90")} />
+            <span className="truncate">{label}</span>
+          </span>
+          <span className="ml-1 text-[10px] font-normal">{count}</span>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-1 pl-1">{children}</CollapsibleContent>
+    </Collapsible>
   )
 }

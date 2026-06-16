@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react"
 
+import { groupConnectionsByEnvironment } from "@/lib/group-connections-by-environment"
+
 import type { ConnectionGroup, DatabaseConnection } from "../types"
 import { UNASSIGNED_ENVIRONMENT_LABEL } from "../types"
 
@@ -24,7 +26,9 @@ export function useConnectionList({
   activeEnvironmentFilter,
   availableEnvironments,
 }: UseConnectionListOptions): UseConnectionListReturn {
-  const [groupByEnvironment, setGroupByEnvironment] = useState(false)
+  // Folders on by default so the connections page shows the environment
+  // structure; users can still flatten via the toggle.
+  const [groupByEnvironment, setGroupByEnvironment] = useState(true)
 
   // Filter connections by active environment
   const filteredConnections = useMemo(() => {
@@ -40,54 +44,16 @@ export function useConnectionList({
     })
   }, [connections, activeEnvironmentFilter])
 
-  // Group connections by environment
-  const groupedConnections = useMemo(() => {
+  // Group connections by environment (shared with the sidebar folders).
+  const groupedConnections = useMemo<ConnectionGroup[]>(() => {
     if (!groupByEnvironment) {
       return []
     }
-
-    // Create environment order map for sorting
-    const envOrder = new Map<string, number>()
-    availableEnvironments.forEach((env, idx) => envOrder.set(env, idx))
-
-    // Group connections by environment
-    const groupMap = new Map<string, DatabaseConnection[]>()
-
-    filteredConnections.forEach((conn) => {
-      const connEnvs = conn.environments && conn.environments.length > 0
-        ? conn.environments
-        : [UNASSIGNED_ENVIRONMENT_LABEL]
-
-      connEnvs.forEach((env) => {
-        const key = env === UNASSIGNED_ENVIRONMENT_LABEL ? UNASSIGNED_ENVIRONMENT_LABEL : env
-        if (!groupMap.has(key)) {
-          groupMap.set(key, [])
-        }
-        groupMap.get(key)?.push(conn)
-      })
-    })
-
-    // Convert to array and sort
-    return Array.from(groupMap.entries())
-      .map(([key, items]) => ({
-        key,
-        label: key === UNASSIGNED_ENVIRONMENT_LABEL ? UNASSIGNED_ENVIRONMENT_LABEL : key,
-        connections: items,
-      }))
-      .sort((a, b) => {
-        // Unassigned always at the end
-        if (a.key === UNASSIGNED_ENVIRONMENT_LABEL) return 1
-        if (b.key === UNASSIGNED_ENVIRONMENT_LABEL) return -1
-
-        // Sort by environment order, then alphabetically
-        const orderA = envOrder.get(a.key) ?? Number.MAX_SAFE_INTEGER
-        const orderB = envOrder.get(b.key) ?? Number.MAX_SAFE_INTEGER
-
-        if (orderA === orderB) {
-          return a.label.localeCompare(b.label)
-        }
-        return orderA - orderB
-      })
+    return groupConnectionsByEnvironment(
+      filteredConnections,
+      availableEnvironments,
+      UNASSIGNED_ENVIRONMENT_LABEL
+    )
   }, [filteredConnections, groupByEnvironment, availableEnvironments])
 
   return {
