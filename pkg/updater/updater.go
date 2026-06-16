@@ -20,7 +20,7 @@ import (
 
 const (
 	// GitHubAPIURL is the GitHub API endpoint for releases
-	GitHubAPIURL = "https://api.github.com/repos/sql-studio/sql-studio/releases/latest"
+	GitHubAPIURL = "https://api.github.com/repos/howlerops/howlerops/releases/latest"
 
 	// UpdateCheckInterval is how often to check for updates (24 hours)
 	UpdateCheckInterval = 24 * time.Hour
@@ -222,7 +222,7 @@ func (u *Updater) fetchLatestRelease(ctx context.Context) (*Release, error) {
 	}
 
 	// GitHub API requires User-Agent
-	req.Header.Set("User-Agent", fmt.Sprintf("sql-studio/%s", version.Version))
+	req.Header.Set("User-Agent", fmt.Sprintf("howlerops/%s", version.Version))
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 
 	resp, err := u.httpClient.Do(req)
@@ -305,7 +305,7 @@ func (u *Updater) isNewerVersion(latest, current string) bool {
 
 // getBinaryName returns the appropriate binary name for the current platform
 func (u *Updater) getBinaryName() string {
-	base := "sql-studio-backend"
+	base := "howlerops-cli"
 
 	switch runtime.GOOS {
 	case "darwin":

@@ -2,21 +2,22 @@ import { AlertTriangle, ArrowLeft, Brain, CheckCircle, Download, Key, Play, Serv
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
-import {
-  fetchModelsForProvider,
-  getModelsForProvider,
-  getDefaultModelId,
-  invalidateModelCache,
-  type AIModel,
-  type AIProvider,
-} from "@/config/ai-models"
 import { PageErrorBoundary } from "@/components/page-error-boundary"
+import { UpdateSettingsCard } from "@/components/settings/update-settings-card"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import {
+  type AIModel,
+  type AIProvider,
+  fetchModelsForProvider,
+  getDefaultModelId,
+  getModelsForProvider,
+  invalidateModelCache,
+} from "@/config/ai-models"
 import { useOllamaDetection } from "@/hooks/use-ollama-detection"
 import { useTheme } from "@/hooks/use-theme"
 import { useToast } from "@/hooks/use-toast"
@@ -1252,6 +1253,9 @@ You can also start it manually by running: ollama serve`)
             )}
           </CardContent>
         </Card>
+
+        {/* Updates */}
+        <UpdateSettingsCard />
 
         {/* Save Button */}
         <div className="flex justify-end gap-4">
