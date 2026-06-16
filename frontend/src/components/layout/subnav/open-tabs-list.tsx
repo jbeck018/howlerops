@@ -14,7 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import { useQueryEditorStore } from "@/store/query-editor-store"
 
-import { useTabActions } from "@/components/query-editor/hooks/use-tab-actions"
+import { useTabActions } from "./use-tab-actions"
 
 /**
  * Vertical "Open Tabs" list for the Queries sub-nav — the replacement for the
