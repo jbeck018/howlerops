@@ -18,23 +18,29 @@ export function IconRail() {
   const collapsed = useLayoutStore((state) => state.contextPanelCollapsed)
   const toggleContextPanel = useLayoutStore((state) => state.toggleContextPanel)
 
+  // The Connections page force-hides the context panel, so the toggle would be
+  // a no-op there — hide it to avoid a dead control.
+  const showToggle = !location.pathname.startsWith("/connections")
+
   return (
     <TooltipProvider delayDuration={200}>
       <div className="w-12 flex-shrink-0 border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex flex-col items-stretch py-2">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              aria-pressed={collapsed}
-              onClick={toggleContextPanel}
-              className="relative flex h-11 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            >
-              {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">{collapsed ? "Expand sidebar" : "Collapse sidebar"}</TooltipContent>
-        </Tooltip>
+        {showToggle && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-pressed={collapsed}
+                onClick={toggleContextPanel}
+                className="relative flex h-11 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
+                {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{collapsed ? "Expand sidebar" : "Collapse sidebar"}</TooltipContent>
+          </Tooltip>
+        )}
 
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon
