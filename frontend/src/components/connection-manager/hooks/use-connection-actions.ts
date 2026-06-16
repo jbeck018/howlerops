@@ -129,7 +129,7 @@ export function useConnectionActions(): UseConnectionActionsReturn {
     if (connection.isConnected) {
       await disconnectFromDatabase(connection.id)
     }
-    removeConnection(connection.id)
+    await removeConnection(connection.id)
   }, [disconnectFromDatabase, removeConnection])
 
   return {
