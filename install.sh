@@ -371,8 +371,11 @@ install_macos_app() {
 
     local target="$install_dir/$APP_BUNDLE_NAME"
 
-    if [ -d "$target" ] && [ "$FORCE" -eq 0 ]; then
-        fail "HowlerOps is already installed at $target. Use --force to overwrite."
+    # Re-running the installer updates an existing install in place — that's the
+    # expected "curl | sh = update" behaviour. (--force is kept for compatibility
+    # but is no longer required.)
+    if [ -d "$target" ]; then
+        log "Updating existing installation at $target"
     fi
 
     log_verbose "Copying application bundle to $target"
@@ -411,9 +414,11 @@ install_cli_binary() {
 
     local target="$install_dir/$BINARY_BASENAME"
 
-    # Check if already installed
-    if [ -f "$target" ] && [ "$FORCE" -eq 0 ]; then
-        fail "HowlerOps is already installed at $target. Use --force to overwrite."
+    # Re-running the installer updates an existing install in place — that's the
+    # expected "curl | sh = update" behaviour. (--force is kept for compatibility
+    # but is no longer required.)
+    if [ -f "$target" ]; then
+        log "Updating existing installation at $target"
     fi
 
     # Install binary

@@ -34,7 +34,7 @@ export function UpdateSettingsCard() {
   useEffect(() => {
     if (!isDesktop) return
     GetCurrentVersion()
-      .then((v) => setCurrentVersion(v))
+      .then((v: string) => setCurrentVersion(v))
       .catch(() => setCurrentVersion(""))
   }, [isDesktop])
 
