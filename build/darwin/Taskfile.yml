@@ -40,7 +40,12 @@ tasks:
     cmds:
       - go build {{.BUILD_FLAGS}} -o {{.OUTPUT}}
     vars:
-      BUILD_FLAGS: '{{if eq .DEV "true"}}-tags duckdb -buildvcs=false -gcflags=all="-l"{{else}}-tags production,duckdb -trimpath -buildvcs=false -ldflags="-w -s"{{end}}'
+      # VERSION is injected into the binary so the in-app updater can compare
+      # the running version against the latest GitHub release. Pass it from CI
+      # (e.g. `wails3 task darwin:package ARCH=arm64 VERSION=0.15.6`); local
+      # builds default to "dev", which disables update nagging.
+      VERSION: '{{.VERSION | default "dev"}}'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}-tags duckdb -buildvcs=false -gcflags=all="-l"{{else}}-tags production,duckdb -trimpath -buildvcs=false -ldflags="-w -s -X ''github.com/jbeck018/howlerops/pkg/version.Version={{.VERSION}}''"{{end}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
     env:

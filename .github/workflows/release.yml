@@ -443,7 +443,8 @@ jobs:
       - name: Build HowlerOps (${{ matrix.arch }})
         run: |
           # Native per-arch build (the runner's own arch); duckdb links via CGO.
-          wails3 task darwin:package ARCH=${{ matrix.arch }}
+          # VERSION is baked into the binary so the in-app updater knows what it is.
+          wails3 task darwin:package ARCH=${{ matrix.arch }} VERSION=${{ needs.create-release.outputs.version }}
           ls -lah bin/
 
       - name: Package application

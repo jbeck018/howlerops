@@ -93,7 +93,7 @@ func TestGetBinaryName(t *testing.T) {
 	}
 
 	// Should match current platform
-	expectedBase := "sql-studio-backend"
+	expectedBase := "howlerops-cli"
 	if !contains(binaryName, expectedBase) {
 		t.Errorf("Binary name should contain %s, got %s", expectedBase, binaryName)
 	}
@@ -120,11 +120,11 @@ func TestCheckForUpdate(t *testing.T) {
 		Body:    "New features and bug fixes",
 		Assets: []Asset{
 			{
-				Name:        "sql-studio-backend-darwin-amd64",
+				Name:        "howlerops-cli-darwin-amd64",
 				DownloadURL: "https://example.com/darwin-amd64",
 			},
 			{
-				Name:        "sql-studio-backend-darwin-amd64.sha256",
+				Name:        "howlerops-cli-darwin-amd64.sha256",
 				DownloadURL: "https://example.com/darwin-amd64.sha256",
 			},
 		},

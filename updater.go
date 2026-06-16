@@ -8,19 +8,30 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jbeck018/howlerops/pkg/version"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const (
-	// Current version - this will be updated by build process
-	CurrentVersion = "0.0.2"
+	// GitHub API endpoint for the latest release. This must point at the
+	// repository that actually publishes releases (where the install.sh
+	// installer and CI upload assets), not the Go module path.
+	GitHubReleasesAPI = "https://api.github.com/repos/howlerops/howlerops/releases/latest"
 
-	// GitHub API endpoint for latest release
-	GitHubReleasesAPI = "https://api.github.com/repos/jbeck018/howlerops/releases/latest"
+	// GitHubReleasesPage is the human-facing releases page used as a download
+	// fallback when no matching asset is found.
+	GitHubReleasesPage = "https://github.com/howlerops/howlerops/releases/latest"
 
 	// Update check interval (24 hours)
 	UpdateCheckInterval = 24 * time.Hour
 )
+
+// currentVersion returns the running application version. It is injected at
+// build time via -ldflags "-X .../pkg/version.Version=..."; unbuilt/dev runs
+// report "dev" and never report an available update.
+func currentVersion() string {
+	return version.Version
+}
 
 // UpdateInfo represents information about an available update
 type UpdateInfo struct {
@@ -75,18 +86,20 @@ func (u *UpdateChecker) CheckForUpdates() (*UpdateInfo, error) {
 	u.lastCheckTime = time.Now()
 
 	// Parse versions
-	currentVer := normalizeVersion(CurrentVersion)
+	current := currentVersion()
+	currentVer := normalizeVersion(current)
 	latestVer := normalizeVersion(release.TagName)
 
-	// Check if update is available
-	updateAvailable := compareVersions(latestVer, currentVer) > 0
+	// Never report an update for dev/unbuilt binaries — the version isn't
+	// meaningful, and comparing "dev" to a real release would always nag.
+	updateAvailable := currentVer != "dev" && compareVersions(latestVer, currentVer) > 0
 
 	// Get platform-specific download URL
 	downloadURL := u.getDownloadURL(release)
 
 	return &UpdateInfo{
 		Available:      updateAvailable,
-		CurrentVersion: CurrentVersion,
+		CurrentVersion: current,
 		LatestVersion:  release.TagName,
 		DownloadURL:    downloadURL,
 		ReleaseNotes:   release.Body,
@@ -96,7 +109,7 @@ func (u *UpdateChecker) CheckForUpdates() (*UpdateInfo, error) {
 
 // GetCurrentVersion returns the current application version
 func (u *UpdateChecker) GetCurrentVersion() string {
-	return CurrentVersion
+	return currentVersion()
 }
 
 // SetApp sets the v3 application reference
@@ -124,7 +137,7 @@ func (u *UpdateChecker) fetchLatestRelease() (*GitHubRelease, error) {
 	}
 
 	// Add user agent to avoid rate limiting
-	req.Header.Set("User-Agent", fmt.Sprintf("HowlerOps/%s", CurrentVersion))
+	req.Header.Set("User-Agent", fmt.Sprintf("HowlerOps/%s", currentVersion()))
 
 	resp, err := u.httpClient.Do(req)
 	if err != nil {
@@ -144,37 +157,52 @@ func (u *UpdateChecker) fetchLatestRelease() (*GitHubRelease, error) {
 	return &release, nil
 }
 
-// getDownloadURL returns the appropriate download URL for the current platform
+// getDownloadURL returns the appropriate download URL for the current platform.
+//
+// The desktop app is shipped as a packaged bundle archive (e.g.
+// howlerops-darwin-arm64.tar.gz containing HowlerOps.app), while the release
+// also carries raw CLI binaries named howlerops-cli-<os>-<arch>. We must pick
+// the desktop bundle, not the CLI binary — both contain the same os/arch
+// tokens, so we explicitly skip "cli" assets and prefer a .tar.gz/.zip bundle.
 func (u *UpdateChecker) getDownloadURL(release *GitHubRelease) string {
 	platform := runtime.GOOS
 	arch := runtime.GOARCH
 
-	// Look for platform-specific asset
+	matchesPlatform := func(name string) bool {
+		// Skip CLI binaries and checksum sidecar files.
+		if strings.Contains(name, "cli") || strings.HasSuffix(name, ".sha256") {
+			return false
+		}
+		if !strings.Contains(name, platform) {
+			return false
+		}
+		// macOS desktop bundles may be universal or per-arch.
+		if platform == "darwin" && strings.Contains(name, "universal") {
+			return true
+		}
+		return strings.Contains(name, arch)
+	}
+
+	// First pass: prefer a packaged bundle archive for this platform.
 	for _, asset := range release.Assets {
 		name := strings.ToLower(asset.Name)
-
-		switch platform {
-		case "darwin":
-			// macOS: Look for universal binary or architecture-specific
-			if strings.Contains(name, "darwin-universal") {
-				return asset.BrowserDownloadURL
-			}
-			if strings.Contains(name, "darwin") && (strings.Contains(name, arch) || strings.Contains(name, "universal")) {
-				return asset.BrowserDownloadURL
-			}
-		case "windows":
-			if strings.Contains(name, "windows") && strings.Contains(name, arch) {
-				return asset.BrowserDownloadURL
-			}
-		case "linux":
-			if strings.Contains(name, "linux") && strings.Contains(name, arch) {
-				return asset.BrowserDownloadURL
-			}
+		if matchesPlatform(name) && (strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, ".zip")) {
+			return asset.BrowserDownloadURL
 		}
 	}
 
-	// Fallback to release page
-	return release.HTMLURL
+	// Second pass: any matching non-CLI asset for this platform.
+	for _, asset := range release.Assets {
+		if matchesPlatform(strings.ToLower(asset.Name)) {
+			return asset.BrowserDownloadURL
+		}
+	}
+
+	// Fallback to the release page (the curl installer also lives there).
+	if release.HTMLURL != "" {
+		return release.HTMLURL
+	}
+	return GitHubReleasesPage
 }
 
 // normalizeVersion removes 'v' prefix and trims whitespace
