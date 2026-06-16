@@ -250,9 +250,12 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq gcc musl-dev sqlite3 libsqlite3-dev
 
-          # Install cross-compilation toolchain for arm64
+          # Install cross-compilation toolchain for arm64.
+          # g++-aarch64-linux-gnu pulls in the aarch64 libstdc++ that duckdb's
+          # static C++ libraries require at link time (-lstdc++); without it the
+          # cross link fails with "cannot find -lstdc++".
           if [ "${{ matrix.goarch }}" = "arm64" ]; then
-            sudo apt-get install -y -qq gcc-aarch64-linux-gnu
+            sudo apt-get install -y -qq gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
           fi
 
       - name: Download Go modules
