@@ -22,7 +22,7 @@ export function ContextPanel() {
     return (
       <div className="flex h-full min-h-0 flex-col">
         <OpenTabsList />
-        <div className="flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0">
           <Sidebar />
         </div>
       </div>
