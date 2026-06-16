@@ -73,7 +73,10 @@ build/**/.DS_Store
 
 # Auto-generated platform configs (regenerated from build/config.yml)
 # After fresh clone, run: make generate-assets
-build/darwin/Info.plist
+# NOTE: build/darwin/Info.plist is committed (not ignored) because the release
+# packaging step (darwin:create:app:bundle) copies it and nothing generates it
+# in CI. Without it, `wails3 task darwin:package` fails with
+# "cp: build/darwin/Info.plist: No such file or directory".
 build/darwin/Info.dev.plist
 build/darwin/Assets.car
 build/darwin/icons.icns

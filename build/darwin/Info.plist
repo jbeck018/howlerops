@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleName</key>
+	<string>HowlerOps</string>
+	<key>CFBundleExecutable</key>
+	<string>HowlerOps</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.howlerops.desktop</string>
+	<key>CFBundleVersion</key>
+	<string>0.0.1</string>
+	<key>CFBundleGetInfoString</key>
+	<string>Desktop SQL Client</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.0.1</string>
+	<key>CFBundleIconFile</key>
+	<string>icons.icns</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>10.15.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>(c) 2025, HowlerOps</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>HowlerOps OAuth Callback</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>howlerops</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
