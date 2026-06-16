@@ -115,8 +115,10 @@ jobs:
           LATEST_TAG="${{ steps.get_latest_tag.outputs.latest_tag }}"
           BUMP_TYPE="${{ steps.version_bump.outputs.bump_type }}"
 
-          # Remove 'v' prefix for calculation
-          VERSION=${LATEST_TAG#v}
+          # Strip any leading 'v' characters for calculation. Using `#v` only
+          # removes one, so a previously mis-generated tag like vv0.14.1 would
+          # leave "v0.14.1" and make MAJOR="v0", regenerating vv0.14.2 forever.
+          VERSION=$(printf '%s' "$LATEST_TAG" | sed -E 's/^v+//')
 
           # Split version into components
           MAJOR=$(echo $VERSION | cut -d. -f1)
