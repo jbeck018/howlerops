@@ -3,7 +3,7 @@
 # Inspired by rustup, deno, and bun installation best practices
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh | sh
 #
 # Options:
 #   -v, --verbose       Enable verbose output
@@ -18,10 +18,12 @@ set -e
 # Configuration
 # ============================================================================
 
-GITHUB_REPO="sql-studio/sql-studio"
+GITHUB_REPO="howlerops/howlerops"
 PRODUCT_NAME="HowlerOps"
 BINARY_BASENAME="howlerops"
 APP_BUNDLE_NAME="HowlerOps.app"
+# Name of the binary inside the non-macOS (CLI) release archive.
+CLI_ARCHIVE_BINARY="sql-studio"
 INSTALL_DIR="${INSTALL_DIR:-}"
 VERSION="${VERSION:-latest}"
 VERBOSE="${VERBOSE:-0}"
@@ -359,7 +361,7 @@ install_macos_app() {
     fi
 
     local app_source
-    app_source="$(find "$source_dir" -maxdepth 1 -type d -name "${BINARY_BASENAME}.app" | head -n 1)"
+    app_source="$(find "$source_dir" -maxdepth 1 -type d -name "$APP_BUNDLE_NAME" | head -n 1)"
 
     if [ -z "$app_source" ] || [ ! -d "$app_source" ]; then
         fail "Application bundle not found in archive"
@@ -397,9 +399,9 @@ install_cli_binary() {
         fi
     fi
 
-    # Find the binary in the extracted files
+    # Find the binary in the extracted files (CLI archives ship "sql-studio")
     local binary
-    binary="$(find "$source_dir" -type f -name "${BINARY_BASENAME}*" ! -name "*.tar.gz" | head -n 1)"
+    binary="$(find "$source_dir" -type f \( -name "${CLI_ARCHIVE_BINARY}*" -o -name "${BINARY_BASENAME}*" \) ! -name "*.tar.gz" | head -n 1)"
 
     if [ -z "$binary" ] || [ ! -f "$binary" ]; then
         fail "Binary not found in archive"
@@ -606,7 +608,7 @@ main() {
 HowlerOps Universal Installer
 
 Usage:
-  curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh | sh
 
 Options:
   -v, --verbose       Enable verbose output
@@ -622,18 +624,18 @@ Environment Variables:
 
 Examples:
   # Install latest version
-  curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh | sh
 
   # Install specific version
-  curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh -s -- --version v2.0.0
+  curl -fsSL https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh | sh -s -- --version v2.0.0
 
   # Install to custom directory
-  curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh -s -- --install-dir /usr/local/bin
+  curl -fsSL https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh | sh -s -- --install-dir /usr/local/bin
 
   # Dry run
-  curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh -s -- --dry-run
+  curl -fsSL https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh | sh -s -- --dry-run
 
-For more information, visit: https://docs.sqlstudio.io
+For more information, visit: https://github.com/howlerops/howlerops
 EOF
                 exit 0
                 ;;
@@ -664,8 +666,10 @@ EOF
     install_dir="$(determine_install_dir)"
     log "Installation directory: ${BOLD}${install_dir}${RESET}"
 
-    # Construct archive name and URLs
-    local archive_name="${BINARY_BASENAME}-${platform}"
+    # Construct archive name and URLs.
+    # macOS ships the desktop app bundle (howlerops-darwin-universal.tar.gz);
+    # Linux/Windows ship the CLI (sql-studio-<os>-<arch>.tar.gz).
+    local archive_name="${CLI_ARCHIVE_BINARY}-${platform}"
     if [ "$PLATFORM_OS" = "darwin" ]; then
         archive_name="${BINARY_BASENAME}-darwin-universal"
     fi
@@ -682,7 +686,7 @@ EOF
     temp_dir="$(mktemp -d)"
     trap 'cleanup "$temp_dir"' EXIT
 
-    local archive="${temp_dir}/${binary_name}.tar.gz"
+    local archive="${temp_dir}/${archive_name}.tar.gz"
     local checksums="${temp_dir}/checksums.txt"
 
     # Download archive
@@ -738,7 +742,7 @@ EOF
         echo "  ${CYAN}$BINARY_BASENAME version${RESET}"
     fi
     echo ""
-    echo "${BOLD}Documentation:${RESET} ${CYAN}https://docs.sqlstudio.io${RESET}"
+    echo "${BOLD}Documentation:${RESET} ${CYAN}https://github.com/howlerops/howlerops${RESET}"
     echo ""
 }
 
