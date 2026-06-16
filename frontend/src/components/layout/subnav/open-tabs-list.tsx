@@ -138,19 +138,19 @@ export function OpenTabsList() {
                     </Popover>
                   </div>
                   {tab.isDirty && <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />}
-                  {tabs.length > 1 && (
-                    <button
-                      type="button"
-                      aria-label="Close tab"
-                      className="flex-shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-muted-foreground/20"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        closeTab(tab.id)
-                      }}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  )}
+                  {/* Always allow closing — closing the last tab drops to the
+                      editor's empty state (the store supports zero tabs). */}
+                  <button
+                    type="button"
+                    aria-label="Close tab"
+                    className="flex-shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-muted-foreground/20"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      closeTab(tab.id)
+                    }}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
                 </div>
               )
             })
