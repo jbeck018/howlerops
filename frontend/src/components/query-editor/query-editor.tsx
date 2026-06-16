@@ -19,7 +19,7 @@ import { useAuthStore } from "@/store/auth-store"
 import { useConnectionStore } from "@/store/connection-store"
 import { useQueryEditorStore } from "@/store/query-editor-store"
 
-import { AISidebar, EditorToolbar, EmptyState, HeaderBar, QueryTabs } from "./components"
+import { AISidebar, EditorToolbar, EmptyState, HeaderBar } from "./components"
 import {
   useAIIntegration,
   useEditorState,
@@ -42,15 +42,12 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
     connectToDatabase,
     isConnecting,
     activeEnvironmentFilter,
-    availableEnvironments,
-    setEnvironmentFilter,
     setActiveConnection: setGlobalActiveConnection,
   } = useConnectionStore()
   const {
     tabs,
     activeTabId,
     createTab,
-    closeTab,
     updateTab,
     setActiveTab,
   } = useQueryEditorStore()
@@ -93,12 +90,9 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
     setShowSaveQueryDialog,
     lastExecutionError,
     setLastExecutionError,
-    lastConnectionError,
     setLastConnectionError,
     pendingQuery,
     setPendingQuery,
-    openConnectionPopover,
-    setOpenConnectionPopover,
     renameSessionId,
     renameTitle,
     setRenameTitle,
@@ -125,7 +119,6 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
     connectionDatabases,
     connectionDbLoading,
     connectionDbSwitching,
-    ensureConnectionDatabases,
     handleConnectionDatabaseChange,
     loadMultiDBSchemas,
   } = multiDB
@@ -242,15 +235,6 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
     }
     return connections
   }, [environmentFilteredConnections, connections])
-
-  // Environment options
-  const environmentOptions = useMemo(() => {
-    const envSet = new Set(availableEnvironments)
-    if (activeEnvironmentFilter) {
-      envSet.add(activeEnvironmentFilter)
-    }
-    return Array.from(envSet).sort((a, b) => a.localeCompare(b))
-  }, [availableEnvironments, activeEnvironmentFilter])
 
   // Visual builder schemas
   const visualBuilderSchemas = useMemo(() => {
@@ -460,23 +444,6 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
   }, [activeTab?.id, scheduleTabUpdate, setEditorContent])
 
   // Tab click handler
-  const handleTabClick = useCallback((tabId: string) => {
-    setActiveTab(tabId)
-    const tab = tabs.find(t => t.id === tabId)
-    if (tab) {
-      setEditorContent(tab.content)
-    }
-  }, [tabs, setActiveTab, setEditorContent])
-
-  // Get connection label for tab
-  const getConnectionLabelForTab = useCallback((tab: { connectionId?: string }) => {
-    if (!tab.connectionId) {
-      return 'Select DB'
-    }
-    const connection = connections.find((conn) => conn.id === tab.connectionId)
-    return connection?.name || 'Select DB'
-  }, [connections])
-
   // Get active connections for tab
   const getActiveConnectionsForTab = useCallback((tab: { connectionId?: string; selectedConnectionIds?: string[] }) => {
     if (mode === 'single') {
@@ -487,17 +454,6 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
     }
     return environmentFilteredConnections.map(c => c.id)
   }, [mode, environmentFilteredConnections])
-
-  // Connection popover toggle
-  const handleConnectionPopoverToggle = useCallback((tabId: string, open: boolean) => {
-    setOpenConnectionPopover(open ? tabId : null)
-    if (open) {
-      const targetTab = tabs.find((tab) => tab.id === tabId)
-      if (targetTab?.connectionId) {
-        void ensureConnectionDatabases(targetTab.connectionId)
-      }
-    }
-  }, [tabs, ensureConnectionDatabases, setOpenConnectionPopover])
 
   // Multi-DB connections change
   const handleMultiDBConnectionsChange = useCallback((tabId: string, connectionIds: string[]) => {
@@ -620,39 +576,6 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
           onToggleDiagnostics={() => setShowDiagnostics(prev => !prev)}
           onSetIsFixMode={setIsFixMode}
           onSetAISheetTab={setAISheetTab}
-        />
-
-        {/* Tabs */}
-        <QueryTabs
-          tabs={tabs}
-          activeTabId={activeTabId}
-          mode={mode}
-          connections={connections}
-          environmentFilteredConnections={environmentFilteredConnections}
-          environmentOptions={environmentOptions}
-          activeEnvironmentFilter={activeEnvironmentFilter}
-          isConnecting={isConnecting}
-          openConnectionPopover={openConnectionPopover}
-          lastConnectionError={lastConnectionError}
-          onTabClick={handleTabClick}
-          onCloseTab={(tabId, e) => {
-            e.stopPropagation()
-            closeTab(tabId)
-          }}
-          onConnectionChange={(tabId, connId) => {
-            handleTabConnectionChange(tabId, connId)
-            setOpenConnectionPopover(null)
-          }}
-          onConnectionPopoverToggle={handleConnectionPopoverToggle}
-          onSetEnvironmentFilter={setEnvironmentFilter}
-          onOpenConnectionSelector={(tabId) => {
-            setActiveTab(tabId)
-            setShowConnectionSelector(true)
-          }}
-          onCreateSqlTab={handleCreateSqlTab}
-          onCreateAiTab={handleCreateAiTab}
-          getConnectionLabelForTab={getConnectionLabelForTab}
-          getActiveConnectionsForTab={getActiveConnectionsForTab}
         />
       </div>
 
