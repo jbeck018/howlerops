@@ -12,3 +12,6 @@ daemon-state.json
 
 # Generated metrics snapshots (the daemon rewrites/creates these every run)
 metrics/
+
+# Swarm coordination state (rewritten continuously by the running daemon)
+swarm/
