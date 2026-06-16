@@ -667,11 +667,11 @@ EOF
     log "Installation directory: ${BOLD}${install_dir}${RESET}"
 
     # Construct archive name and URLs.
-    # macOS ships the desktop app bundle (howlerops-darwin-universal.tar.gz);
-    # Linux/Windows ship the CLI (sql-studio-<os>-<arch>.tar.gz).
+    # macOS ships the desktop app bundle per arch (howlerops-darwin-<arch>.tar.gz);
+    # Linux ships the CLI (sql-studio-<os>-<arch>.tar.gz).
     local archive_name="${CLI_ARCHIVE_BINARY}-${platform}"
     if [ "$PLATFORM_OS" = "darwin" ]; then
-        archive_name="${BINARY_BASENAME}-darwin-universal"
+        archive_name="${BINARY_BASENAME}-${platform}"
     fi
 
     local base_url="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}"
