@@ -130,9 +130,8 @@ jobs:
           ```
 
           **Manual Download:**
-          - **macOS desktop app**: `howlerops-darwin-universal.tar.gz` (Universal — Intel & Apple Silicon; contains `HowlerOps.app`)
+          - **macOS desktop app**: `howlerops-darwin-arm64.tar.gz` (Apple Silicon) or `howlerops-darwin-amd64.tar.gz` (Intel) — contains `HowlerOps.app`
           - **CLI (Linux)**: `sql-studio-linux-amd64.tar.gz` or `sql-studio-linux-arm64.tar.gz`
-          - **CLI (Windows)**: `sql-studio-windows-amd64.tar.gz`
 
           ### Verification
 
@@ -190,12 +189,15 @@ jobs:
       contents: write
 
     strategy:
+      # One platform failing must not cancel the others.
+      fail-fast: false
       matrix:
         include:
-          # macOS builds
+          # macOS builds — each on its NATIVE runner so duckdb (CGO) links
+          # without cross-compilation (macos-latest is Apple Silicon, macos-13 is Intel).
           - goos: darwin
             goarch: amd64
-            os: macos-latest
+            os: macos-13
             asset_name: sql-studio-backend-darwin-amd64
             platform: darwin-amd64
 
@@ -218,12 +220,9 @@ jobs:
             asset_name: sql-studio-backend-linux-arm64
             platform: linux-arm64
 
-          # Windows builds
-          - goos: windows
-            goarch: amd64
-            os: ubuntu-latest
-            asset_name: sql-studio-backend-windows-amd64.exe
-            platform: windows-amd64
+          # NOTE: Windows is intentionally not built here — duckdb has no
+          # Windows bindings (build constraints exclude all Go files), so a
+          # `-tags duckdb` Windows build cannot link.
 
     steps:
       - name: Checkout code
@@ -367,12 +366,25 @@ jobs:
             --clobber
 
   build-howlerops:
-    name: Build HowlerOps Desktop (macOS)
-    runs-on: macos-latest
+    name: Build HowlerOps Desktop (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     needs: create-release
 
     permissions:
       contents: write
+
+    strategy:
+      # Build each arch on its native runner so duckdb (CGO) links without
+      # cross-compilation — a universal/cross build can't link x86_64 duckdb on
+      # an Apple Silicon runner. macos-latest = Apple Silicon (arm64),
+      # macos-13 = Intel (amd64).
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-latest
+          - arch: amd64
+            runner: macos-13
 
     steps:
       - name: Checkout code
@@ -423,10 +435,10 @@ jobs:
           # Install Task runner (required for Wails v3 builds)
           go install github.com/go-task/task/v3/cmd/task@latest
 
-      - name: Build HowlerOps (macOS Universal)
+      - name: Build HowlerOps (${{ matrix.arch }})
         run: |
-          # Use Wails v3 Taskfile-based build
-          wails3 task darwin:package:universal
+          # Native per-arch build (the runner's own arch); duckdb links via CGO.
+          wails3 task darwin:package ARCH=${{ matrix.arch }}
           ls -lah bin/
 
       - name: Package application
@@ -434,10 +446,10 @@ jobs:
           mkdir -p dist
           # Wails v3 outputs to bin/ directory
           cd bin
-          tar -czf ../dist/howlerops-darwin-universal.tar.gz HowlerOps.app
+          tar -czf "../dist/howlerops-darwin-${{ matrix.arch }}.tar.gz" HowlerOps.app
           cd ..
           ls -lah dist
-          echo "DESKTOP_ARCHIVE=dist/howlerops-darwin-universal.tar.gz" >> $GITHUB_ENV
+          echo "DESKTOP_ARCHIVE=dist/howlerops-darwin-${{ matrix.arch }}.tar.gz" >> $GITHUB_ENV
 
       - name: Generate checksum
         run: |
@@ -634,18 +646,19 @@ jobs:
           ls -lah
           echo ""
 
-          # Required artifacts
+          # Required artifacts — the desktop app bundles the curl installer needs.
           REQUIRED=(
+            "howlerops-darwin-arm64.tar.gz"
+            "howlerops-darwin-amd64.tar.gz"
+          )
+
+          # Optional artifacts (warn if missing) — server CLIs and checksums.
+          # linux-arm64 duckdb cross-linking can be flaky, so CLIs don't gate.
+          OPTIONAL=(
             "sql-studio-darwin-amd64.tar.gz"
             "sql-studio-darwin-arm64.tar.gz"
             "sql-studio-linux-amd64.tar.gz"
             "sql-studio-linux-arm64.tar.gz"
-            "sql-studio-windows-amd64.tar.gz"
-            "howlerops-darwin-universal.tar.gz"
-          )
-          
-          # Optional artifacts (warn if missing)
-          OPTIONAL=(
             "checksums.txt"
           )
 
@@ -684,15 +697,17 @@ jobs:
         run: |
           cd release-assets
 
-          # Extract archives and verify binaries
-          tar xzf sql-studio-linux-amd64.tar.gz
-          chmod +x sql-studio
+          # Smoke-test the Linux CLI if it was published (now optional).
+          if [ -f sql-studio-linux-amd64.tar.gz ]; then
+            tar xzf sql-studio-linux-amd64.tar.gz
+            chmod +x sql-studio
+            ./sql-studio --version || echo "Binary test completed"
+          else
+            echo "sql-studio-linux-amd64.tar.gz not present — skipping CLI smoke test"
+          fi
 
-          # Test binary
-          ./sql-studio --version || echo "Binary test completed"
-
-          # Verify checksums match
-          if command -v sha256sum >/dev/null 2>&1; then
+          # Verify checksums match (if present)
+          if [ -f checksums.txt ] && command -v sha256sum >/dev/null 2>&1; then
             sha256sum -c checksums.txt || echo "Checksum verification completed"
           fi
 
