@@ -36,6 +36,8 @@ tasks:
             ref: .BUILD_FLAGS
           DEV:
             ref: .DEV
+          # Bundle the real @wailsio/runtime (not the web mock) for the desktop app.
+          WAILS_BUILD: "true"
       - task: common:generate:icons
     cmds:
       - go build {{.BUILD_FLAGS}} -o {{.OUTPUT}}
@@ -61,6 +63,8 @@ tasks:
     internal: true
     deps:
       - task: common:build:frontend
+        vars:
+          WAILS_BUILD: "true"
       - task: common:generate:icons
     preconditions:
       - sh: docker info > /dev/null 2>&1

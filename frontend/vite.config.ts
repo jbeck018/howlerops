@@ -7,11 +7,13 @@ import { defineConfig, loadEnv } from 'vite'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
-  // Mock @wailsio/runtime for all production builds and web-only builds.
-  // The real Wails runtime is only injected during `wails3 dev` which sets
-  // up the module dynamically. For standalone builds (npm run build, Vercel),
-  // we need the mock.
-  const needsMockRuntime = mode === 'production' || process.env.VERCEL === '1'
+  // Mock @wailsio/runtime for web/server/Vercel builds, which have no Wails
+  // backend and talk to the Go server over HTTP/gRPC instead. The packaged
+  // Wails desktop app DOES ship the real runtime, so its build sets
+  // WAILS_BUILD=true to opt out of the mock (otherwise every binding call —
+  // updates, etc. — would hit the mock and fail with "web mode").
+  const isWailsBuild = process.env.WAILS_BUILD === 'true'
+  const needsMockRuntime = !isWailsBuild && (mode === 'production' || process.env.VERCEL === '1')
 
   return {
     plugins: [react(), tailwindcss()],
