@@ -109,8 +109,8 @@ jobs:
 
           # Create release notes. The changelog is written via echo so the shell
           # variable expands; the static part stays in a quoted heredoc so its
-          # markdown backticks survive (the ${{ }} expressions are substituted by
-          # Actions before the shell runs, so they work inside the quoted heredoc).
+          # markdown backticks survive. GitHub Actions template expressions are
+          # substituted before the shell runs, so they still work in the heredoc.
           {
             echo "## Howlerops Backend v${{ steps.get_version.outputs.version }}"
             echo ""
