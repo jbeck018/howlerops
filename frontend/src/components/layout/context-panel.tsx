@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
 import { Sidebar } from "./sidebar"
+import { OpenTabsList } from "./subnav/open-tabs-list"
 
 /**
  * Route-aware contextual panel (column 2 of the IconRail + ContextPanel + content
@@ -16,7 +17,19 @@ export function ContextPanel() {
   const { pathname } = useLocation()
 
   // Connections context is most useful where you work against databases.
-  if (pathname.startsWith("/dashboard") || pathname.startsWith("/connections")) {
+  if (pathname.startsWith("/dashboard")) {
+    // Queries route: open-tabs list stacked above the connections panel.
+    return (
+      <div className="flex h-full min-h-0 w-56 flex-shrink-0 flex-col border-r bg-background/95">
+        <OpenTabsList />
+        <div className="flex-1 min-h-0">
+          <Sidebar />
+        </div>
+      </div>
+    )
+  }
+
+  if (pathname.startsWith("/connections")) {
     return <Sidebar />
   }
 
