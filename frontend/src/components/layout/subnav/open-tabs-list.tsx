@@ -1,5 +1,5 @@
 import { Check, Plus, Sparkles, Terminal, X } from "lucide-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 
 import { Button } from "@/components/ui/button"
@@ -24,18 +24,42 @@ import { useTabActions } from "./use-tab-actions"
  * shared with the editor so behaviour stays consistent.
  */
 export function OpenTabsList() {
-  const { tabs, activeTabId, setActiveTab, closeTab } = useQueryEditorStore(
+  const { tabs, activeTabId, setActiveTab, closeTab, updateTab } = useQueryEditorStore(
     useShallow((state) => ({
       tabs: state.tabs,
       activeTabId: state.activeTabId,
       setActiveTab: state.setActiveTab,
       closeTab: state.closeTab,
+      updateTab: state.updateTab,
     }))
   )
   const { connections, createSqlTab, createAiTab, changeTabConnection, getConnectionLabelForTab } =
     useTabActions()
 
   const [openConnPopover, setOpenConnPopover] = useState<string | null>(null)
+
+  // Inline tab rename. escapedRef guards against the Escape-then-blur race so
+  // cancelling doesn't commit the in-progress draft.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draftTitle, setDraftTitle] = useState("")
+  const escapedRef = useRef(false)
+
+  const startRename = (id: string, title: string) => {
+    escapedRef.current = false
+    setEditingId(id)
+    setDraftTitle(title)
+  }
+
+  const commitRename = (id: string) => {
+    if (escapedRef.current) {
+      escapedRef.current = false
+      setEditingId(null)
+      return
+    }
+    const name = draftTitle.trim()
+    if (name) updateTab(id, { title: name })
+    setEditingId(null)
+  }
 
   return (
     <div className="flex w-56 flex-shrink-0 flex-col border-b border-r max-h-[45%] bg-background/95">
@@ -90,7 +114,37 @@ export function OpenTabsList() {
                     <Terminal className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
                   )}
                   <div className="flex flex-1 min-w-0 flex-col">
-                    <span className="truncate text-xs leading-tight">{tab.title}</span>
+                    {editingId === tab.id ? (
+                      <input
+                        autoFocus
+                        value={draftTitle}
+                        onChange={(e) => setDraftTitle(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault()
+                            commitRename(tab.id)
+                          } else if (e.key === "Escape") {
+                            e.preventDefault()
+                            escapedRef.current = true
+                            setEditingId(null)
+                          }
+                        }}
+                        onBlur={() => commitRename(tab.id)}
+                        className="w-full rounded border bg-background px-1 text-xs leading-tight outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    ) : (
+                      <span
+                        className="truncate text-xs leading-tight"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation()
+                          startRename(tab.id, tab.title)
+                        }}
+                        title="Double-click to rename"
+                      >
+                        {tab.title}
+                      </span>
+                    )}
                     <Popover
                       open={openConnPopover === tab.id}
                       onOpenChange={(open) => setOpenConnPopover(open ? tab.id : null)}

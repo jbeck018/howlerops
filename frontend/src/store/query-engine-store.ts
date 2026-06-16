@@ -12,6 +12,7 @@ import { devtools } from 'zustand/middleware'
 import { useShallow } from 'zustand/react/shallow'
 
 import { api } from '@/lib/api-client'
+import { inferTabTitle, isDefaultTabTitle } from '@/lib/infer-tab-title'
 import {
   createErrorQueryResult,
   prepareLoadMoreResult,
@@ -183,6 +184,15 @@ export const useQueryEngineStore = create<QueryEngineState>()(
           }
 
           editorStore.updateTab(tabId, { isExecuting: true, executionStartTime: new Date() })
+
+          // Auto-name still-default tabs from the executed SQL so the Open Tabs
+          // list shows something meaningful (users can rename manually).
+          if (isDefaultTabTitle(tab.title)) {
+            const inferred = inferTabTitle(query)
+            if (inferred) {
+              editorStore.updateTab(tabId, { title: inferred })
+            }
+          }
 
           set((state) => {
             const next = new Map(state.executingQueries)
