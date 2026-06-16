@@ -544,6 +544,9 @@ export const useConnectionStore = create<ConnectionState>()(
             }),
           }))
           get().refreshAvailableEnvironments()
+          // Persist the new tag to SQLite so it survives migrations/origin changes.
+          const updated = get().connections.find((c) => c.id === connId)
+          if (updated) syncConnectionToSQLite(updated)
         },
 
         removeEnvironmentFromConnection: (connId, env) => {
@@ -559,6 +562,8 @@ export const useConnectionStore = create<ConnectionState>()(
             }),
           }))
           get().refreshAvailableEnvironments()
+          const updated = get().connections.find((c) => c.id === connId)
+          if (updated) syncConnectionToSQLite(updated)
         },
 
         refreshAvailableEnvironments: () => {

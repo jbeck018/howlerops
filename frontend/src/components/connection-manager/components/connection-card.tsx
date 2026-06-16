@@ -1,6 +1,6 @@
 import { Activity, Cloud, Database, Lock, Pencil, Play, Server, Square, Tag, Trash2 } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
+import { EnvironmentTagPicker } from "@/components/environment-tag-picker"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -85,23 +85,16 @@ export function ConnectionCard({
           )}
         </div>
 
-        {/* Environment tags */}
+        {/* Environment tags — assign inline (drives the connection folders) */}
         <div className="mt-3">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <Tag className="h-3 w-3" />
             <span>Environment</span>
           </div>
-          {connection.environments && connection.environments.length > 0 ? (
-            <div className="mt-1 flex flex-wrap gap-2">
-              {connection.environments.map((env) => (
-                <Badge key={`${connection.id}-${env}`} variant="secondary" className="text-xs">
-                  {env}
-                </Badge>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-1 text-xs text-muted-foreground italic">Not assigned</p>
-          )}
+          <EnvironmentTagPicker
+            connectionId={connection.id}
+            environments={connection.environments ?? []}
+          />
         </div>
 
         {/* Connection status and actions */}
