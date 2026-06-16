@@ -23,7 +23,7 @@ PRODUCT_NAME="HowlerOps"
 BINARY_BASENAME="howlerops"
 APP_BUNDLE_NAME="HowlerOps.app"
 # Name of the binary inside the non-macOS (CLI) release archive.
-CLI_ARCHIVE_BINARY="sql-studio"
+CLI_ARCHIVE_BINARY="howlerops"
 INSTALL_DIR="${INSTALL_DIR:-}"
 VERSION="${VERSION:-latest}"
 VERBOSE="${VERBOSE:-0}"
@@ -401,7 +401,7 @@ install_cli_binary() {
         fi
     fi
 
-    # Find the binary in the extracted files (CLI archives ship "sql-studio")
+    # Find the binary in the extracted files (CLI archives ship "howlerops")
     local binary
     binary="$(find "$source_dir" -type f \( -name "${CLI_ARCHIVE_BINARY}*" -o -name "${BINARY_BASENAME}*" \) ! -name "*.tar.gz" | head -n 1)"
 
@@ -670,8 +670,9 @@ EOF
 
     # Construct archive name and URLs.
     # macOS ships the desktop app bundle per arch (howlerops-darwin-<arch>.tar.gz);
-    # Linux ships the CLI (sql-studio-<os>-<arch>.tar.gz).
-    local archive_name="${CLI_ARCHIVE_BINARY}-${platform}"
+    # other platforms ship the CLI (howlerops-cli-<os>-<arch>.tar.gz). The -cli-
+    # segment keeps the CLI archive distinct from the macOS app bundle asset.
+    local archive_name="${BINARY_BASENAME}-cli-${platform}"
     if [ "$PLATFORM_OS" = "darwin" ]; then
         archive_name="${BINARY_BASENAME}-${platform}"
     fi

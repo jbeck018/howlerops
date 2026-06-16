@@ -131,7 +131,7 @@ jobs:
 
           **Manual Download:**
           - **macOS desktop app**: `howlerops-darwin-arm64.tar.gz` (Apple Silicon) or `howlerops-darwin-amd64.tar.gz` (Intel) — contains `HowlerOps.app`
-          - **CLI (Linux)**: `sql-studio-linux-amd64.tar.gz` or `sql-studio-linux-arm64.tar.gz`
+          - **CLI (Linux)**: `howlerops-cli-linux-amd64.tar.gz` or `howlerops-cli-linux-arm64.tar.gz`
 
           ### Verification
 
@@ -144,13 +144,13 @@ jobs:
 
           ```bash
           # Extract (Unix)
-          tar xzf sql-studio-backend-*.tar.gz
+          tar xzf howlerops-cli-*.tar.gz
 
           # Make executable
-          chmod +x sql-studio-backend
+          chmod +x howlerops
 
           # Run
-          ./sql-studio-backend --version
+          ./howlerops --version
           ```
 
           ### Docker Image
@@ -198,26 +198,26 @@ jobs:
           - goos: darwin
             goarch: amd64
             os: macos-13
-            asset_name: sql-studio-backend-darwin-amd64
+            asset_name: howlerops-cli-darwin-amd64
             platform: darwin-amd64
 
           - goos: darwin
             goarch: arm64
             os: macos-latest
-            asset_name: sql-studio-backend-darwin-arm64
+            asset_name: howlerops-cli-darwin-arm64
             platform: darwin-arm64
 
           # Linux builds
           - goos: linux
             goarch: amd64
             os: ubuntu-latest
-            asset_name: sql-studio-backend-linux-amd64
+            asset_name: howlerops-cli-linux-amd64
             platform: linux-amd64
 
           - goos: linux
             goarch: arm64
             os: ubuntu-latest
-            asset_name: sql-studio-backend-linux-arm64
+            asset_name: howlerops-cli-linux-arm64
             platform: linux-arm64
 
           # NOTE: Windows is intentionally not built here — duckdb has no
@@ -308,18 +308,20 @@ jobs:
       - name: Create archive
         run: |
           # Create release package compatible with install.sh
-          # Archive name should match: sql-studio-${OS}-${ARCH}.tar.gz
+          # Archive name must match install.sh: howlerops-cli-${OS}-${ARCH}.tar.gz
+          # (the -cli- segment avoids colliding with the desktop app bundle
+          # asset howlerops-darwin-${ARCH}.tar.gz).
           PLATFORM_NAME="${{ matrix.platform }}"
-          ARCHIVE_NAME="sql-studio-${PLATFORM_NAME}"
+          ARCHIVE_NAME="howlerops-cli-${PLATFORM_NAME}"
           BINARY_NAME="${{ matrix.asset_name }}"
 
-          # Rename binary to sql-studio for consistency
+          # Rename binary to howlerops for consistency inside the archive
           if [ "${{ matrix.goos }}" = "windows" ]; then
-            cp "$BINARY_NAME" sql-studio.exe
-            BINARY_IN_ARCHIVE="sql-studio.exe"
+            cp "$BINARY_NAME" howlerops.exe
+            BINARY_IN_ARCHIVE="howlerops.exe"
           else
-            cp "$BINARY_NAME" sql-studio
-            BINARY_IN_ARCHIVE="sql-studio"
+            cp "$BINARY_NAME" howlerops
+            BINARY_IN_ARCHIVE="howlerops"
           fi
 
           # Always create tar.gz for compatibility with install.sh
@@ -658,10 +660,10 @@ jobs:
           # Optional artifacts (warn if missing) — server CLIs and checksums.
           # linux-arm64 duckdb cross-linking can be flaky, so CLIs don't gate.
           OPTIONAL=(
-            "sql-studio-darwin-amd64.tar.gz"
-            "sql-studio-darwin-arm64.tar.gz"
-            "sql-studio-linux-amd64.tar.gz"
-            "sql-studio-linux-arm64.tar.gz"
+            "howlerops-cli-darwin-amd64.tar.gz"
+            "howlerops-cli-darwin-arm64.tar.gz"
+            "howlerops-cli-linux-amd64.tar.gz"
+            "howlerops-cli-linux-arm64.tar.gz"
             "checksums.txt"
           )
 
@@ -701,12 +703,12 @@ jobs:
           cd release-assets
 
           # Smoke-test the Linux CLI if it was published (now optional).
-          if [ -f sql-studio-linux-amd64.tar.gz ]; then
-            tar xzf sql-studio-linux-amd64.tar.gz
-            chmod +x sql-studio
-            ./sql-studio --version || echo "Binary test completed"
+          if [ -f howlerops-cli-linux-amd64.tar.gz ]; then
+            tar xzf howlerops-cli-linux-amd64.tar.gz
+            chmod +x howlerops
+            ./howlerops --version || echo "Binary test completed"
           else
-            echo "sql-studio-linux-amd64.tar.gz not present — skipping CLI smoke test"
+            echo "howlerops-cli-linux-amd64.tar.gz not present — skipping CLI smoke test"
           fi
 
           # Verify checksums match (if present)
