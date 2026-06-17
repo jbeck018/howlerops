@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -21,6 +24,10 @@ const (
 	// GitHubReleasesPage is the human-facing releases page used as a download
 	// fallback when no matching asset is found.
 	GitHubReleasesPage = "https://github.com/howlerops/howlerops/releases/latest"
+
+	// InstallScriptURL is the official installer used for in-app updates. It is
+	// the same script users run via curl, so it updates the install in place.
+	InstallScriptURL = "https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh"
 
 	// Update check interval (24 hours)
 	UpdateCheckInterval = 24 * time.Hour
@@ -125,6 +132,65 @@ func (u *UpdateChecker) OpenDownloadPage() error {
 
 	if u.app != nil {
 		_ = u.app.Browser.OpenURL(u.latestRelease.HTMLURL)
+	}
+	return nil
+}
+
+// currentAppBundlePath returns the path to the running .app bundle (macOS), or
+// "" if it can't be determined (e.g. a bare CLI/dev run).
+func currentAppBundlePath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+		exe = resolved
+	}
+	dir := exe
+	for {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		if strings.HasSuffix(parent, ".app") {
+			return parent
+		}
+		dir = parent
+	}
+}
+
+// DownloadAndInstall updates the app in place by running the official installer
+// (the same script users run via curl), targeting the current install location.
+// macOS/Linux only; Windows users are directed to the release page.
+func (u *UpdateChecker) DownloadAndInstall() error {
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("in-app update isn't supported on Windows yet — use the release page")
+	}
+
+	script := fmt.Sprintf("curl -fsSL %s | sh", InstallScriptURL)
+	if appPath := currentAppBundlePath(); appPath != "" {
+		// Update the app where it currently lives so we don't create a duplicate.
+		installDir := filepath.Dir(appPath)
+		script = fmt.Sprintf("curl -fsSL %s | sh -s -- --install-dir %q", InstallScriptURL, installDir)
+	}
+
+	cmd := exec.Command("sh", "-c", script)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("update failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+// RestartApp relaunches the (now updated) app bundle and quits the current
+// instance so the new version takes over.
+func (u *UpdateChecker) RestartApp() error {
+	if appPath := currentAppBundlePath(); appPath != "" {
+		// -n forces a fresh instance even though this one is still briefly alive.
+		_ = exec.Command("open", "-n", appPath).Start()
+	}
+	if u.app != nil {
+		u.app.Quit()
 	}
 	return nil
 }
