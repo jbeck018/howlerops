@@ -8,6 +8,11 @@ import { CodeMirrorEditor, type CodeMirrorEditorRef } from "@/components/codemir
 import { ConnectionDatabasePicker } from "@/components/connection-database-picker"
 import { MultiDBDiagnostics } from "@/components/debug/multi-db-diagnostics"
 import { MultiDBConnectionSelector } from "@/components/multi-db-connection-selector"
+import { useAIMemoryHydration } from "@/components/query-editor-parts/hooks/use-ai-memory-hydration"
+import { useConnectionDatabases } from "@/components/query-editor-parts/hooks/use-connection-databases"
+import { useMultiDBSchemas } from "@/components/query-editor-parts/hooks/use-multi-db-schemas"
+import { useQueryEditorKeyboardShortcuts } from "@/components/query-editor-parts/hooks/use-query-editor-keyboard-shortcuts"
+import { convertSchemaNodes, getDialectFromConnectionType, type SqlDialect } from "@/components/query-editor-parts/utils"
 import { SavedQueriesPanel } from "@/components/saved-queries/SavedQueriesPanel"
 import { SaveQueryDialog } from "@/components/saved-queries/SaveQueryDialog"
 import { SelectDatabasePrompt } from "@/components/select-database-prompt"
@@ -39,16 +44,13 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import type { ColumnInfo, SchemaInfo, TableInfo } from "@/components/visual-query-builder/types"
+import type { SchemaInfo } from "@/components/visual-query-builder/types"
 import { useQueryMode } from "@/hooks/use-query-mode"
 import { type SchemaNode,useSchemaIntrospection } from "@/hooks/use-schema-introspection"
 import { useTheme } from "@/hooks/use-theme"
-import { toast } from "@/hooks/use-toast"
-import { type ColumnLoader } from "@/lib/codemirror-sql"
 import { preloadComponent } from "@/lib/component-preload"
 import { generateSQL as generateSQLFromIR,QueryIR } from "@/lib/query-ir"
 import { cn } from "@/lib/utils"
-import { waitForWails } from "@/lib/wails-runtime"
 import { useAIMemoryStore } from "@/store/ai-memory-store"
 import { useAIQueryAgentStore } from "@/store/ai-query-agent-store"
 import { useAIConfig, useAIGeneration, useAIStore } from "@/store/ai-store"
@@ -67,80 +69,6 @@ const VisualQueryBuilder = lazy(() => import("@/components/visual-query-builder"
 // Preload these components on first interaction
 const preloadGenericChatSidebar = () => import("@/components/generic-chat-sidebar").then(m => ({ default: m.GenericChatSidebar as React.ComponentType<unknown> }))
 const preloadVisualQueryBuilder = () => import("@/components/visual-query-builder").then(m => ({ default: m.VisualQueryBuilder as React.ComponentType<unknown> }))
-
-/**
- * Map connection database type to SQL dialect for query generation
- */
-type SqlDialect = 'postgres' | 'mysql' | 'sqlite' | 'mssql'
-
-function getDialectFromConnectionType(connectionType: string | undefined): SqlDialect {
-  if (!connectionType) return 'postgres'
-  switch (connectionType.toLowerCase()) {
-    case 'postgresql':
-    case 'postgres':
-      return 'postgres'
-    case 'mysql':
-    case 'mariadb':
-    case 'tidb':
-      return 'mysql'
-    case 'sqlite':
-      return 'sqlite'
-    case 'mssql':
-    case 'sqlserver':
-      return 'mssql'
-    default:
-      return 'postgres'
-  }
-}
-
-/**
- * Convert SchemaNode[] (hierarchical tree) to SchemaInfo[] (flat list for visual query builder)
- */
-function convertSchemaNodes(schemaNodes: SchemaNode[]): SchemaInfo[] {
-  const result: SchemaInfo[] = []
-
-  for (const schemaOrDb of schemaNodes) {
-    // Handle both database-level nodes and schema-level nodes
-    if (schemaOrDb.type === 'schema') {
-      const tables: TableInfo[] = []
-      for (const tableNode of schemaOrDb.children || []) {
-        if (tableNode.type === 'table') {
-          const columns: ColumnInfo[] = []
-          for (const colNode of tableNode.children || []) {
-            if (colNode.type === 'column') {
-              const meta = colNode.metadata as Record<string, unknown> | undefined
-              columns.push({
-                name: colNode.name,
-                dataType: (meta?.dataType as string) || (meta?.data_type as string) || 'unknown',
-                isNullable: meta?.isNullable === true || meta?.nullable === true || meta?.isNullable === 'YES',
-                isPrimaryKey: meta?.isPrimaryKey === true || meta?.primaryKey === true,
-                isForeignKey: meta?.isForeignKey === true || meta?.foreignKey === true,
-              })
-            }
-          }
-          const tableMeta = tableNode.metadata as Record<string, unknown> | undefined
-          tables.push({
-            name: tableNode.name,
-            schema: schemaOrDb.name,
-            columns,
-            rowCount: tableMeta?.rowCount as number | undefined,
-            sizeBytes: tableMeta?.sizeBytes as number | undefined,
-          })
-        }
-      }
-      result.push({ name: schemaOrDb.name, tables })
-    } else if (schemaOrDb.type === 'database') {
-      // Recurse into database children (which should be schemas)
-      for (const childSchema of schemaOrDb.children || []) {
-        if (childSchema.type === 'schema') {
-          result.push(...convertSchemaNodes([childSchema]))
-        }
-      }
-    }
-  }
-
-  return result
-}
 
 export interface QueryEditorProps {
   mode?: 'single' | 'multi';
@@ -208,12 +136,14 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
   const [isVisualMode, setIsVisualMode] = useState(false)
   const [visualQueryIR, setVisualQueryIR] = useState<QueryIR | null>(null)
 
-  // Multi-DB state - schemas for all connections
-  const [multiDBSchemas, setMultiDBSchemas] = useState<Map<string, SchemaNode[]>>(new Map())
-  const multiDBSchemasRef = useRef<Map<string, SchemaNode[]>>(new Map())
-
-  // Column cache for lazy loading (sessionId-schema-table -> columns)
-  const columnCacheRef = useRef<Map<string, SchemaNode[]>>(new Map())
+  // Multi-DB state - schemas for all connections (extracted to hook)
+  const {
+    multiDBSchemas,
+    multiDBSchemasRef,
+    columnCacheRef,
+    loadMultiDBSchemas,
+    columnLoader,
+  } = useMultiDBSchemas({ mode, connections, connectToDatabase })
 
   const memorySessionsMap = useAIMemoryStore(state => state.sessions)
   const activeMemorySessionId = useAIMemoryStore(state => state.activeSessionId)
@@ -222,9 +152,6 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
   const renameMemorySession = useAIMemoryStore(state => state.renameSession)
   const clearAllMemorySessions = useAIMemoryStore(state => state.clearAll)
 
-  const [connectionDatabases, setConnectionDatabases] = useState<Record<string, string[]>>({})
-  const [connectionDbLoading, setConnectionDbLoading] = useState<Record<string, boolean>>({})
-  const [connectionDbSwitching, setConnectionDbSwitching] = useState<Record<string, boolean>>({})
   const memorySessions = useMemo(() =>
     Object.values(memorySessionsMap).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
     [memorySessionsMap]
@@ -293,34 +220,6 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
     return map
   }, [connections])
 
-  const ensureConnectionDatabases = useCallback(async (connectionId: string) => {
-    if (!connectionId) {
-      return
-    }
-    if (connectionDatabases[connectionId] || connectionDbLoading[connectionId]) {
-      return
-    }
-
-    const connection = connectionMap.get(connectionId)
-    if (!connection || !connection.sessionId || !connection.isConnected) {
-      return
-    }
-
-    setConnectionDbLoading((prev) => ({ ...prev, [connectionId]: true }))
-    try {
-      const dbs = await useConnectionStore.getState().fetchDatabases(connectionId)
-      setConnectionDatabases((prev) => ({ ...prev, [connectionId]: dbs }))
-    } catch (error) {
-      toast({
-        title: 'Unable to load databases',
-        description: error instanceof Error ? error.message : 'Unknown error occurred',
-        variant: 'destructive',
-      })
-    } finally {
-      setConnectionDbLoading((prev) => ({ ...prev, [connectionId]: false }))
-    }
-  }, [connectionDatabases, connectionDbLoading, connectionMap])
-
   const editorConnections = useMemo(() => {
     if (mode === 'multi') {
       // For multi-DB mode, use ALL connected connections for autocomplete
@@ -377,6 +276,18 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
   }, [environmentFilteredConnections, connections])
 
   const activeTab = tabs.find(tab => tab.id === activeTabId)
+
+  // Per-connection database listing/switching (extracted to hook)
+  const {
+    connectionDatabases,
+    connectionDbLoading,
+    connectionDbSwitching,
+    handleConnectionDatabaseChange,
+  } = useConnectionDatabases({
+    mode,
+    connectionMap,
+    activeTabConnectionId: activeTab?.connectionId,
+  })
 
   // Get SQL dialect from active tab's connection
   const activeDialect = useMemo((): SqlDialect => {
@@ -446,33 +357,6 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
     handlePageChange
   }), [activeTab, handleFixQueryError, updateTab, handlePageChange])
 
-  const handleConnectionDatabaseChange = useCallback(async (connectionId: string, database: string) => {
-    if (!connectionId || !database) {
-      return
-    }
-    const connection = connectionMap.get(connectionId)
-    if (!connection || connection.database === database) {
-      return
-    }
-
-    setConnectionDbSwitching((prev) => ({ ...prev, [connectionId]: true }))
-    try {
-      await useConnectionStore.getState().switchDatabase(connectionId, database)
-      toast({
-        title: 'Database switched',
-        description: `${connection.name || 'Connection'} is now using ${database}.`,
-      })
-    } catch (error) {
-      toast({
-        title: 'Failed to switch database',
-        description: error instanceof Error ? error.message : 'Unable to switch database',
-        variant: 'destructive',
-      })
-    } finally {
-      setConnectionDbSwitching((prev) => ({ ...prev, [connectionId]: false }))
-    }
-  }, [connectionMap])
-
   const activeDatabaseSelector = useMemo(() => {
     if (mode !== 'single') {
       return null
@@ -532,16 +416,6 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
     mode,
   ])
 
-  useEffect(() => {
-    if (mode !== 'single') {
-      return
-    }
-    if (!activeTab?.connectionId) {
-      return
-    }
-    void ensureConnectionDatabases(activeTab.connectionId)
-  }, [activeTab?.connectionId, ensureConnectionDatabases, mode])
-
   const flushTabUpdate = useCallback((tabId: string, value: string) => {
     if (!tabId) return
     const snapshot = useQueryEditorStore.getState().tabs.find(tab => tab.id === tabId)
@@ -590,239 +464,17 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
 
   // Remove automatic tab creation - let users create tabs manually
 
-  useEffect(() => {
-    multiDBSchemasRef.current = multiDBSchemas
-  }, [multiDBSchemas])
+  // AI memory + agent hydration (extracted to hook)
+  useAIMemoryHydration({
+    aiEnabled,
+    syncMemories: aiConfig.syncMemories,
+    hydrateMemoriesFromBackend,
+    memoriesHydrated,
+    agentHydrated,
+    syncAgentFromMemory,
+  })
 
-  useEffect(() => {
-    if (!aiEnabled || !aiConfig.syncMemories) {
-      return
-    }
-
-    hydrateMemoriesFromBackend().catch(error => {
-      console.error('Failed to hydrate AI memories:', error)
-    })
-  }, [aiEnabled, aiConfig.syncMemories, hydrateMemoriesFromBackend])
-
-  useEffect(() => {
-    if (memoriesHydrated && !agentHydrated) {
-      syncAgentFromMemory()
-    }
-  }, [memoriesHydrated, agentHydrated, syncAgentFromMemory])
-
-  // Keyboard shortcuts:
-  // - Ctrl/Cmd+Shift+D: toggle diagnostics
-  // - Ctrl/Cmd+Shift+L: open Saved Queries library
-  // - Ctrl/Cmd+Shift+S: open Save Query dialog
   useEffect(() => { editorContentRef.current = editorContent }, [editorContent])
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') {
-        e.preventDefault()
-        setShowDiagnostics(prev => !prev)
-      }
-
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'L' || e.key === 'l')) {
-        e.preventDefault()
-        setShowSavedQueries(prev => !prev)
-      }
-
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'S' || e.key === 's')) {
-        if ((editorRef.current?.getValue() ?? editorContentRef.current).trim()) {
-          e.preventDefault()
-          setShowSaveQueryDialog(true)
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
-
-  const loadMultiDBSchemas = useCallback(async () => {
-    // For @ symbol autocomplete, we need ALL connected connections, not just filtered ones
-    // The environment filter should only affect the UI, not the autocomplete functionality
-    const relevantConnections = mode === 'multi' ? connections.filter(c => c.isConnected) : connections
-    
-    try {
-      // Step 1: Ensure ALL filtered connections are connected (auto-connect)
-      const disconnected = relevantConnections.filter(c => !c.isConnected)
-      
-      if (disconnected.length > 0) {
-        await Promise.allSettled(
-          disconnected.map(async (conn) => {
-            await connectToDatabase(conn.id)
-          })
-        )
-        
-        // Wait a bit for state to update after connections
-        await new Promise(resolve => setTimeout(resolve, 100))
-      }
-      
-      // Step 2: Get session IDs for backend (backend uses sessionId as map key!)
-      // Filter to only connected connections (from filtered set) that have sessionIds
-      const connectedWithSessions = relevantConnections.filter(c => c.isConnected && c.sessionId)
-      const sessionIds = connectedWithSessions.map(c => c.sessionId!)
-        
-      if (sessionIds.length === 0) {
-        setMultiDBSchemas(new Map())
-        return
-      }
-      
-      // Step 3: Load schemas using GetMultiConnectionSchema (uses cache!)
-      try {
-        const { GetMultiConnectionSchema } = await import('../../bindings/github.com/jbeck018/howlerops/app')
-        const combined = await GetMultiConnectionSchema(sessionIds)
-        
-          if (!combined || !combined.connections) {
-            setMultiDBSchemas(new Map())
-            return
-          }
-      
-      // Convert to SchemaNode format and load columns for each table
-      const schemasMap = new Map<string, SchemaNode[]>()
-      
-      // Process each connection (connId here is sessionId from backend)
-      for (const [sessionId, rawConnSchema] of Object.entries(combined.connections || {})) {
-        const schemaNodes: SchemaNode[] = []
-        const connSchema = rawConnSchema as {
-          schemas?: string[]
-          tables?: Array<{ name: string; schema: string }>
-        }
-        
-        // Find the connection by sessionId to get its name
-        const connection = connectedWithSessions.find(c => c.sessionId === sessionId)
-        
-        const schemaNames = (connSchema.schemas as string[]) || []
-        const tables = (connSchema.tables as Array<{ name: string; schema: string }>) || []
-        
-        // Process each schema
-        for (const schemaName of schemaNames) {
-          const schemaTables = tables.filter(t => t.schema === schemaName)
-          
-          // Skip migration table and internal postgres tables
-          const nonMigrationTables = schemaTables.filter(t => 
-            t.name !== 'schema_migrations' && 
-            t.name !== 'goose_db_version' &&
-            t.name !== '_prisma_migrations' &&
-            !t.name.startsWith('__drizzle') &&
-            !schemaName.startsWith('pg_temp') &&
-            !schemaName.startsWith('pg_toast')
-          )
-          
-          // Skip empty schemas (like pg_temp_*, pg_toast_*)
-          if (nonMigrationTables.length === 0) {
-            continue
-          }
-          
-          // ✅ DON'T load columns upfront - too slow and hits localStorage quota!
-          // Columns will be loaded lazily when user accesses a table in autocomplete
-          const tablesWithColumns: SchemaNode[] = nonMigrationTables.map(table => ({
-            id: `${sessionId}-${schemaName}-${table.name}`,
-            name: table.name,
-            type: 'table' as const,
-            schema: table.schema,
-            sessionId,  // Store for lazy loading
-            children: []  // Empty initially, loaded on-demand
-          }))
-          
-          schemaNodes.push({
-            id: `${sessionId}-${schemaName}`,
-            name: schemaName,
-            type: 'schema' as const,
-            children: tablesWithColumns
-          })
-        }
-        
-        // Store by connection ID (not sessionId!) and name for lookup
-        if (connection) {
-          const keys = new Set<string>([connection.id])
-
-          if (connection.name) {
-            keys.add(connection.name)
-
-            const slug = connection.name.replace(/[^\w-]/g, '-')
-            if (slug && slug !== connection.name) {
-              keys.add(slug)
-            }
-          }
-
-          keys.forEach(key => {
-            schemasMap.set(key, schemaNodes)
-          })
-
-          // ✅ UPDATE BOTH STATE AND REF! Don't wait for useEffect - update ref immediately
-          const newMap = new Map(schemasMap)
-          setMultiDBSchemas(newMap)
-          multiDBSchemasRef.current = newMap  // Direct ref update for immediate availability!
-        }
-      }
-      
-      // Final update with complete schema
-      setMultiDBSchemas(schemasMap)
-      multiDBSchemasRef.current = schemasMap  // Final ref sync
-      } catch {
-      setMultiDBSchemas(new Map())
-      return
-      }
-    } catch {
-      // Set empty map on error so autocomplete still works (without multi-DB)
-      setMultiDBSchemas(new Map())
-    }
-  }, [mode, connections, connectToDatabase])
-
-  // Load schemas for all connections when in multi-DB mode
-  useEffect(() => {
-    if (mode !== 'multi') {
-      return
-    }
-
-    const connectedConnections = connections.filter(c => c.isConnected)
-    if (connectedConnections.length === 0) {
-      const emptyMap = new Map<string, SchemaNode[]>()
-      setMultiDBSchemas(emptyMap)
-      multiDBSchemasRef.current = emptyMap
-      return
-    }
-
-    loadMultiDBSchemas()
-  }, [mode, connections, loadMultiDBSchemas])
-
-  const columnLoader: ColumnLoader = useCallback(async (sessionId: string, schema: string, tableName: string) => {
-    try {
-      // Wait for Wails runtime to be ready
-      const isReady = await waitForWails(2000)
-
-      if (!isReady) {
-        console.warn('[ColumnLoader] Wails runtime not ready')
-        return []
-      }
-
-      const { GetTableStructure } = await import('../../bindings/github.com/jbeck018/howlerops/app')
-      const structure = await GetTableStructure(sessionId, schema, tableName)
-
-      if (!structure || !structure.columns || structure.columns.length === 0) {
-        return []
-      }
-
-      // Convert to Column format
-      return structure.columns.map((col: { name: string; data_type?: string; nullable?: boolean; primary_key?: boolean }) => ({
-        name: col.name,
-        dataType: col.data_type || 'unknown',
-        nullable: col.nullable,
-        primaryKey: col.primary_key
-      }))
-    } catch (error) {
-      console.error('[ColumnLoader] Failed to load columns:', {
-        sessionId,
-        schema,
-        tableName,
-        error: error instanceof Error ? error.message : String(error)
-      })
-      return []
-    }
-  }, [])
 
   const handleEditorDidMount = () => {
     // Editor mounted
@@ -974,72 +626,6 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
     }
   }, [activeTab, editorContent, executeQuery, flushTabUpdate, results, tabPaginationState])
 
-  // Keyboard shortcut for executing query (Ctrl/Cmd+Enter)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        const view = editorRef.current?.getView()
-        if (view && e.target instanceof Node && view.contentDOM.contains(e.target)) {
-          // Let the editor's own keymap handle execution to avoid double-triggering
-          return
-        }
-
-        e.preventDefault()
-
-        if (activeConnection?.isConnected && !activeTab?.isExecuting) {
-          const currentEditorValue = editorRef.current?.getValue() ?? editorContent
-          const selectedText = editorRef.current?.getSelectedText?.() ?? ''
-          const cursorOffset = editorRef.current?.getCursorOffset?.() ?? currentEditorValue.length
-          if (selectedText.trim().length > 0) {
-            handleExecuteQuery()
-            return
-          }
-          const executableQuery = buildExecutableSql(currentEditorValue, {
-            selectionText: selectedText,
-            cursorOffset,
-          })
-
-          if (executableQuery) {
-            handleExecuteQuery()
-          }
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeConnection, editorContent, activeTab?.isExecuting, handleExecuteQuery])
-
-  // Keyboard shortcut for saving query (Ctrl/Cmd+Shift+S)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'S') {
-        e.preventDefault()
-
-        // Only open save dialog if user is authenticated and query has content
-        if (user && editorContent.trim()) {
-          setShowSaveQueryDialog(true)
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [user, editorContent])
-
-  // Keyboard shortcut for opening Saved Queries (Ctrl/Cmd+Shift+L)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toUpperCase() === 'L') {
-        e.preventDefault()
-        if (user) setShowSavedQueries(true)
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [user])
-
   // Removed handleSaveTab - not currently used
 
   const handleCreateSqlTab = useCallback(() => {
@@ -1112,38 +698,21 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
     }
   }, [createTab, activeConnection?.id, updateTab, setActiveTab, setEditorContent, setGlobalActiveConnection])
 
-  useEffect(() => {
-    const isTypingTarget = (target: EventTarget | null) => {
-      if (!(target instanceof HTMLElement)) {
-        return false
-      }
-      const tag = target.tagName.toLowerCase()
-      return tag === 'input' || tag === 'textarea' || target.isContentEditable
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (isTypingTarget(event.target)) {
-        return
-      }
-
-      const modifierPressed = event.metaKey || event.ctrlKey
-      if (!modifierPressed || !event.shiftKey) {
-        return
-      }
-
-      const key = event.key.toLowerCase()
-      if (key === 'n') {
-        event.preventDefault()
-        handleCreateSqlTab()
-      } else if (key === 'g') {
-        event.preventDefault()
-        handleCreateAiTab()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleCreateSqlTab, handleCreateAiTab])
+  // Keyboard shortcuts (extracted to hook)
+  useQueryEditorKeyboardShortcuts({
+    editorRef,
+    editorContentRef,
+    editorContent,
+    user,
+    activeConnection,
+    activeTab,
+    setShowDiagnostics,
+    setShowSavedQueries,
+    setShowSaveQueryDialog,
+    handleExecuteQuery,
+    handleCreateSqlTab,
+    handleCreateAiTab,
+  })
 
   useEffect(() => {
     if (!activeTabId) {
@@ -1332,16 +901,6 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
     void persistMemoriesIfEnabled()
     closeRenameDialog()
   }
-
-  useEffect(() => {
-    if (!aiEnabled || !aiConfig.syncMemories) {
-      return
-    }
-
-    hydrateMemoriesFromBackend().catch((error) => {
-      console.error('Failed to hydrate AI memories:', error)
-    })
-  }, [aiEnabled, aiConfig.syncMemories, hydrateMemoriesFromBackend])
 
   const editorSchemas = mode === 'multi' ? multiDBSchemas : singleConnectionSchemas
 
