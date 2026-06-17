@@ -33,6 +33,9 @@ type DatabaseManager interface {
 	HealthCheckAll(ctx context.Context) map[string]*database.HealthStatus
 	Close() error
 	ExecuteMultiQuery(ctx context.Context, query string, options *multiquery.Options) (*multiquery.Result, error)
+	ExecuteMultiQueryScoped(ctx context.Context, query string, selectedConnectionIds []string, options *multiquery.Options) (*multiquery.Result, error)
+	ExecuteOnDatabase(ctx context.Context, connectionID, targetDatabase, query string, opts *database.QueryOptions) (*database.QueryResult, error)
+	GetExecutionTarget(ctx context.Context, connectionID, targetDatabase string) (database.Database, error)
 	ParseMultiQuery(query string) (*multiquery.ParsedQuery, error)
 	ValidateMultiQuery(parsed *multiquery.ParsedQuery) error
 	InvalidateSchemaCache(connectionID string)
@@ -288,13 +291,16 @@ func (s *DatabaseService) SwitchDatabase(connectionID, databaseName string) (*Sw
 	}, nil
 }
 
-// ExecuteQuery executes a SQL query
+// ExecuteQuery executes a SQL query against the connection's active database.
 func (s *DatabaseService) ExecuteQuery(connectionID, query string, options *database.QueryOptions) (*database.QueryResult, error) {
-	db, err := s.manager.GetConnection(connectionID)
-	if err != nil {
-		return nil, fmt.Errorf("connection not found: %w", err)
-	}
+	return s.ExecuteQueryOnDatabase(connectionID, "", query, options)
+}
 
+// ExecuteQueryOnDatabase executes a SQL query, optionally targeting a specific
+// database on the connection WITHOUT switching the connection's globally-active
+// database. When targetDatabase is empty the behavior is identical to
+// ExecuteQuery (runs against the live connection).
+func (s *DatabaseService) ExecuteQueryOnDatabase(connectionID, targetDatabase, query string, options *database.QueryOptions) (*database.QueryResult, error) {
 	// Apply default options if not provided
 	if options == nil {
 		options = &database.QueryOptions{
@@ -312,17 +318,26 @@ func (s *DatabaseService) ExecuteQuery(connectionID, query string, options *data
 		defer cancel()
 	}
 
-	result, err := db.ExecuteWithOptions(ctx, query, options)
+	// Resolve the execution target (honors per-tab DB targeting). We keep a
+	// handle to the same target for editable-metadata computation so the metadata
+	// reflects the database the query actually ran against.
+	target, err := s.manager.GetExecutionTarget(ctx, connectionID, targetDatabase)
+	if err != nil {
+		return nil, fmt.Errorf("connection not found: %w", err)
+	}
+
+	result, err := s.manager.ExecuteOnDatabase(ctx, connectionID, targetDatabase, query, options)
 	if err != nil {
 		s.logger.WithFields(logrus.Fields{
 			"connection_id": connectionID,
+			"database":      targetDatabase,
 			"error":         err,
 		}).Error("Query execution failed")
 		return nil, err
 	}
 
 	if result != nil && result.Editable != nil && result.Editable.Pending {
-		jobID := s.startEditableMetadataJob(connectionID, db, query, result.Columns, result.Editable)
+		jobID := s.startEditableMetadataJob(connectionID, target, query, result.Columns, result.Editable)
 		result.Editable.JobID = jobID
 	}
 
@@ -877,8 +892,16 @@ type ForeignKeyResponse struct {
 	Schema string `json:"schema,omitempty"`
 }
 
-// ExecuteMultiDatabaseQuery executes a query across multiple connections
+// ExecuteMultiDatabaseQuery executes a query across multiple connections,
+// considering every connected connection (legacy behavior).
 func (s *DatabaseService) ExecuteMultiDatabaseQuery(query string, options *multiquery.Options) (*MultiQueryResponse, error) {
+	return s.ExecuteMultiDatabaseQueryScoped(query, nil, options)
+}
+
+// ExecuteMultiDatabaseQueryScoped executes a query across multiple connections,
+// restricting federation to selectedConnectionIds. When the list is empty the
+// legacy behavior (all connected connections) is preserved.
+func (s *DatabaseService) ExecuteMultiDatabaseQueryScoped(query string, selectedConnectionIds []string, options *multiquery.Options) (*MultiQueryResponse, error) {
 	// Apply default options
 	if options == nil {
 		options = &multiquery.Options{
@@ -889,7 +912,7 @@ func (s *DatabaseService) ExecuteMultiDatabaseQuery(query string, options *multi
 	}
 
 	// Execute via manager
-	result, err := s.manager.ExecuteMultiQuery(s.ctx, query, options)
+	result, err := s.manager.ExecuteMultiQueryScoped(s.ctx, query, selectedConnectionIds, options)
 	if err != nil {
 		s.logger.WithError(err).Error("Multi-query execution failed")
 		return &MultiQueryResponse{

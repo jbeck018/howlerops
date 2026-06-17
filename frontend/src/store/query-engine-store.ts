@@ -221,7 +221,15 @@ export const useQueryEngineStore = create<QueryEngineState>()(
               resolved.sessionId,
               query,
               limit,
-              offset
+              offset,
+              undefined,
+              undefined,
+              {
+                // Per-tab database targeting (single-DB mode); empty = active DB.
+                database: tab.database,
+                // Federation scoping (multi-DB mode); empty = all connected.
+                selectedConnectionIds: tab.selectedConnectionIds,
+              }
             )
 
             // On pages past the first the backend skips the COUNT(*), so carry
@@ -295,6 +303,10 @@ export const useQueryEngineStore = create<QueryEngineState>()(
           const pageSize = result.limit ?? 5000
           const nextOffset = currentOffset + pageSize
 
+          // Carry the originating tab's per-tab DB target and federation scope
+          // forward so paginated loads hit the same database/connections.
+          const sourceTab = useQueryEditorStore.getState().tabs.find((t) => t.id === result.tabId)
+
           try {
             historyStore.updateResultProcessing(resultId, true, 0)
 
@@ -302,7 +314,13 @@ export const useQueryEngineStore = create<QueryEngineState>()(
               resolved.sessionId,
               result.query,
               pageSize,
-              nextOffset
+              nextOffset,
+              undefined,
+              undefined,
+              {
+                database: sourceTab?.database,
+                selectedConnectionIds: sourceTab?.selectedConnectionIds,
+              }
             )
 
             const prepared = prepareLoadMoreResult(result, response, nextOffset)

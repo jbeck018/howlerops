@@ -75,7 +75,7 @@ func (s *QueryService) ExecuteQuery(req QueryRequest) (*QueryResponse, error) {
 		SkipCount: req.Offset > 0,
 	}
 
-	result, err := s.deps.DatabaseService.ExecuteQuery(req.ConnectionID, req.Query, options)
+	result, err := s.deps.DatabaseService.ExecuteQueryOnDatabase(req.ConnectionID, req.Database, req.Query, options)
 	if err != nil {
 		return &QueryResponse{ //nolint:nilerr // error embedded in response
 			Error: err.Error(),
@@ -424,8 +424,9 @@ func (s *QueryService) ExecuteMultiDatabaseQuery(req MultiQueryRequest) (*MultiQ
 		options.Limit = 1000
 	}
 
-	// Execute via database service
-	result, err := s.deps.DatabaseService.ExecuteMultiDatabaseQuery(req.Query, options)
+	// Execute via database service, scoping federation to the tab's selected
+	// connections when provided (empty preserves legacy all-connections behavior).
+	result, err := s.deps.DatabaseService.ExecuteMultiDatabaseQueryScoped(req.Query, req.SelectedConnectionIds, options)
 	if err != nil {
 		return &MultiQueryResponse{ //nolint:nilerr // error embedded in response
 			Error: err.Error(),

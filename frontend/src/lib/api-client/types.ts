@@ -106,6 +106,18 @@ export interface SwitchDatabaseResult {
 // Query Types
 // ==========================================
 
+/**
+ * Optional per-execution targeting options.
+ * - `database`: run against a specific database on the connection without
+ *   globally switching the connection's active database (per-tab targeting).
+ * - `selectedConnectionIds`: scope multi-DB (@conn) federation to these
+ *   connections only. Empty/undefined = all connected connections.
+ */
+export interface QueryExecOptions {
+  database?: string
+  selectedConnectionIds?: string[]
+}
+
 export interface QueryResult {
   queryId: string
   success: boolean
@@ -288,7 +300,7 @@ export interface ApiClient {
   }
 
   queries: {
-    execute: (connectionId: string, sql: string, limit?: number, offset?: number, timeout?: number, isExport?: boolean) => Promise<ApiResponse<QueryResult>>
+    execute: (connectionId: string, sql: string, limit?: number, offset?: number, timeout?: number, isExport?: boolean, execOptions?: QueryExecOptions) => Promise<ApiResponse<QueryResult>>
     getEditableMetadata: (jobId: string) => Promise<ApiResponse<EditableMetadata | null>>
     updateRow: (payload: UpdateRowRequest) => Promise<ApiResponse<null>>
     insertRow: (payload: InsertRowRequest) => Promise<InsertRowResult>

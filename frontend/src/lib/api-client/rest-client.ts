@@ -21,6 +21,7 @@ import type {
   InsertRowResult,
   ListDatabasesResult,
   PaginatedResponse,
+  QueryExecOptions,
   QueryResult,
   SaveConnectionRequest,
   SchemaInfo,
@@ -269,7 +270,8 @@ export const restApiClient: ApiClient = {
       limit: number = 5000,
       offset: number = 0,
       timeout: number = 30,
-      isExport: boolean = false
+      isExport: boolean = false,
+      execOptions?: QueryExecOptions
     ): Promise<ApiResponse<QueryResult>> => {
       try {
         const result = await request<{
@@ -289,6 +291,13 @@ export const restApiClient: ApiClient = {
           offset,
           timeout,
           isExport,
+          // Per-tab database targeting + federation scoping (empty = legacy
+          // behavior). The deployed server does not yet expose this endpoint;
+          // these fields are forwarded for when it is wired up.
+          ...(execOptions?.database ? { database: execOptions.database } : {}),
+          ...(execOptions?.selectedConnectionIds && execOptions.selectedConnectionIds.length > 0
+            ? { selectedConnectionIds: execOptions.selectedConnectionIds }
+            : {}),
         })
 
         const hasError = Boolean(result.error)

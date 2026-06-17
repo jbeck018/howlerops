@@ -355,11 +355,23 @@ export class WailsApiClient {
     }
   }
 
-  async executeQuery(connectionId: string, sql: string, limit?: number, offset?: number, timeout?: number, isExport?: boolean) {
+  async executeQuery(
+    connectionId: string,
+    sql: string,
+    limit?: number,
+    offset?: number,
+    timeout?: number,
+    isExport?: boolean,
+    execOptions?: { database?: string; selectedConnectionIds?: string[] }
+  ) {
     try {
       // Check if query contains @ syntax for multi-database queries
       if (shouldUseMultiDatabasePath(sql)) {
-        return await this.executeMultiDatabaseQuery(sql, { limit, timeout })
+        return await this.executeMultiDatabaseQuery(sql, {
+          limit,
+          timeout,
+          selectedConnectionIds: execOptions?.selectedConnectionIds,
+        })
       }
 
       // Load defaults from preferences
@@ -371,7 +383,8 @@ export class WailsApiClient {
       const limitRows = typeof limit === 'number' ? limit : (typeof limitPref?.value === 'number' ? limitPref.value : 5000)
       const offsetRows = typeof offset === 'number' ? offset : 0
 
-      // Note: Timeout and offset are supported by backend; TS bindings may lag until regenerated
+      // Note: Timeout, offset and database are supported by backend; TS bindings
+      // may lag until regenerated.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const req: any = {
         connectionId,
@@ -380,6 +393,10 @@ export class WailsApiClient {
         offset: offsetRows,
         timeout: timeoutSeconds,
         isExport: isExport || false
+      }
+      // Per-tab database targeting (empty/undefined = connection's active DB).
+      if (execOptions?.database) {
+        req.database = execOptions.database
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -444,7 +461,7 @@ export class WailsApiClient {
     }
   }
 
-  async executeMultiDatabaseQuery(sql: string, options?: { limit?: number; timeout?: number }) {
+  async executeMultiDatabaseQuery(sql: string, options?: { limit?: number; timeout?: number; selectedConnectionIds?: string[] }) {
     try {
       // Validate multi-query first
       const validation = await App.ValidateMultiQuery(sql)
@@ -470,12 +487,20 @@ export class WailsApiClient {
       const timeoutPref = await pref.getUserPreference('local-user', 'queryTimeoutSeconds')
       const timeoutSeconds = typeof options?.timeout === 'number' ? options.timeout : (typeof timeoutPref?.value === 'number' ? timeoutPref.value : 30)
 
-      const result = await App.ExecuteMultiDatabaseQuery({
+      // Scope federation to the tab's selected connections (empty = all).
+      // TS bindings may lag until regenerated, so widen the request shape.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const multiReq: any = {
         query: sql,
         timeout: timeoutSeconds, // seconds
         strategy: validation.estimatedStrategy || 'federated',
         limit: options?.limit || 5000
-      })
+      }
+      if (options?.selectedConnectionIds && options.selectedConnectionIds.length > 0) {
+        multiReq.selectedConnectionIds = options.selectedConnectionIds
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await (App.ExecuteMultiDatabaseQuery as any)(multiReq)
 
       const hasError = typeof result.error === 'string' ? result.error.length > 0 : Boolean(result.error)
       const success = !hasError
@@ -744,8 +769,8 @@ export const wailsEndpoints = {
 
   // Query endpoints
   queries: {
-    execute: async (connectionId: string, sql: string, limit?: number, offset?: number, timeout?: number, isExport?: boolean) => {
-      return wailsApiClient.executeQuery(connectionId, sql, limit, offset, timeout, isExport)
+    execute: async (connectionId: string, sql: string, limit?: number, offset?: number, timeout?: number, isExport?: boolean, execOptions?: { database?: string; selectedConnectionIds?: string[] }) => {
+      return wailsApiClient.executeQuery(connectionId, sql, limit, offset, timeout, isExport, execOptions)
     },
     getEditableMetadata: async (jobId: string) => {
       return wailsApiClient.getEditableMetadata(jobId)

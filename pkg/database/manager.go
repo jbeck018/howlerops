@@ -91,6 +91,7 @@ type Manager struct {
 	connections       map[string]Database
 	connectionNames   map[string]string // name -> sessionId mapping for multi-DB queries
 	connectionConfigs map[string]ConnectionConfig
+	dbConnections     map[string]Database // per-(connectionID|database) cached connections for per-tab DB targeting
 	mu                sync.RWMutex
 	logger            *logrus.Logger
 	multiQueryParser  *multiquery.QueryParser
@@ -105,6 +106,7 @@ func NewManager(logger *logrus.Logger) *Manager {
 		connections:       make(map[string]Database),
 		connectionNames:   make(map[string]string),
 		connectionConfigs: make(map[string]ConnectionConfig),
+		dbConnections:     make(map[string]Database),
 		logger:            logger,
 		schemaCache:       NewSchemaCache(logger),
 	}
@@ -116,6 +118,7 @@ func NewManagerWithConfig(logger *logrus.Logger, mqConfig *multiquery.Config) *M
 		connections:       make(map[string]Database),
 		connectionNames:   make(map[string]string),
 		connectionConfigs: make(map[string]ConnectionConfig),
+		dbConnections:     make(map[string]Database),
 		logger:            logger,
 		schemaCache:       NewSchemaCache(logger),
 		multiQueryConfig:  mqConfig,
@@ -300,6 +303,9 @@ func (m *Manager) RemoveConnection(connectionID string) error {
 	delete(m.connections, connectionID)
 	delete(m.connectionConfigs, connectionID)
 
+	// Close any cached per-database connections opened for per-tab targeting
+	m.closeDBConnectionsForLocked(connectionID)
+
 	// Remove from connectionNames map (find and delete the reverse mapping)
 	for name, sessID := range m.connectionNames {
 		if sessID == connectionID {
@@ -401,6 +407,141 @@ func (m *Manager) GetDatabaseSchema(ctx context.Context, connectionID, databaseN
 	}
 
 	return schemas, tables, nil
+}
+
+// databaseRequiresSeparateConnection reports whether targeting a different
+// database on the given engine requires opening a separate connection. For
+// PostgreSQL and SQLite a connection is bound to a single database, so a new
+// connection is needed. MySQL/MariaDB/TiDB/ClickHouse can reference another
+// database in-connection via qualified identifiers, so the live connection is
+// reused.
+func databaseRequiresSeparateConnection(dbType DatabaseType) bool {
+	switch dbType {
+	case PostgreSQL, SQLite:
+		return true
+	default:
+		return false
+	}
+}
+
+// dbConnectionKey builds the cache key for a per-(connection, database) instance.
+func dbConnectionKey(connectionID, databaseName string) string {
+	return connectionID + "|" + databaseName
+}
+
+// getExecutionTarget resolves the Database instance a query should run against
+// for the given connection, honoring an optional target database WITHOUT
+// switching the connection's globally-active database. When targetDatabase is
+// empty (or matches the connection's current database, or the engine can
+// qualify cross-DB in one connection) the live connection is returned. For
+// engines that bind a connection to one database (Postgres/SQLite), a lazily
+// created, cached per-(connectionID, database) connection is returned so two
+// tabs on the same connection can target different databases concurrently.
+func (m *Manager) getExecutionTarget(ctx context.Context, connectionID, targetDatabase string) (Database, error) {
+	targetDatabase = strings.TrimSpace(targetDatabase)
+
+	m.mu.RLock()
+	resolvedID := connectionID
+	if _, exists := m.connections[connectionID]; !exists {
+		if sessionID, ok := m.connectionNames[connectionID]; ok {
+			resolvedID = sessionID
+		}
+	}
+	db, exists := m.connections[resolvedID]
+	cfg, hasCfg := m.connectionConfigs[resolvedID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("connection not found: %s", connectionID)
+	}
+
+	// No target requested, or it matches the live database: use the live connection.
+	if targetDatabase == "" || (hasCfg && strings.EqualFold(strings.TrimSpace(cfg.Database), targetDatabase)) {
+		return db, nil
+	}
+
+	// Engines that can qualify cross-DB in a single connection reuse the live one.
+	if !databaseRequiresSeparateConnection(db.GetDatabaseType()) {
+		return db, nil
+	}
+
+	if !hasCfg {
+		return nil, fmt.Errorf("connection config not found: %s", connectionID)
+	}
+
+	key := dbConnectionKey(resolvedID, targetDatabase)
+
+	// Fast path: cached connection already exists.
+	m.mu.RLock()
+	if cached, ok := m.dbConnections[key]; ok {
+		m.mu.RUnlock()
+		return cached, nil
+	}
+	m.mu.RUnlock()
+
+	// Create the per-database connection (outside the lock).
+	tcfg := cfg
+	tcfg.Database = targetDatabase
+	tdb, err := m.createDatabaseInstance(tcfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database %q: %w", targetDatabase, err)
+	}
+	if err := tdb.Connect(ctx, tcfg); err != nil {
+		return nil, fmt.Errorf("failed to connect to database %q: %w", targetDatabase, err)
+	}
+
+	m.mu.Lock()
+	// Another goroutine may have created it concurrently; prefer the existing one.
+	if cached, ok := m.dbConnections[key]; ok {
+		m.mu.Unlock()
+		if cerr := tdb.Disconnect(); cerr != nil {
+			m.logger.WithError(cerr).Warn("Failed to close redundant per-database connection")
+		}
+		return cached, nil
+	}
+	m.dbConnections[key] = tdb
+	m.mu.Unlock()
+
+	m.logger.WithFields(logrus.Fields{
+		"connection_id": resolvedID,
+		"database":      targetDatabase,
+	}).Debug("Opened cached per-database connection for per-tab targeting")
+
+	return tdb, nil
+}
+
+// GetExecutionTarget returns the Database instance that ExecuteOnDatabase would
+// use for the given connection and optional target database. This lets callers
+// run follow-up operations (e.g. editable-metadata computation) against the
+// same database the query executed on.
+func (m *Manager) GetExecutionTarget(ctx context.Context, connectionID, targetDatabase string) (Database, error) {
+	return m.getExecutionTarget(ctx, connectionID, targetDatabase)
+}
+
+// ExecuteOnDatabase executes a query against a specific database on a connection
+// without changing the connection's globally-active database. When
+// targetDatabase is empty the behavior is identical to executing on the live
+// connection. See getExecutionTarget for engine-specific handling.
+func (m *Manager) ExecuteOnDatabase(ctx context.Context, connectionID, targetDatabase, query string, opts *QueryOptions) (*QueryResult, error) {
+	target, err := m.getExecutionTarget(ctx, connectionID, targetDatabase)
+	if err != nil {
+		return nil, err
+	}
+	return target.ExecuteWithOptions(ctx, query, opts)
+}
+
+// closeDBConnectionsForLocked closes and removes any cached per-database
+// connections belonging to the given connection ID. Caller must hold m.mu.
+func (m *Manager) closeDBConnectionsForLocked(connectionID string) {
+	prefix := connectionID + "|"
+	for key, db := range m.dbConnections {
+		if strings.HasPrefix(key, prefix) {
+			if err := db.Disconnect(); err != nil {
+				m.logger.WithError(err).WithField("key", key).Warn("Failed to close per-database connection")
+			}
+			delete(m.dbConnections, key)
+		}
+	}
 }
 
 // SwitchDatabase switches the active database for a connection. Returns the updated config and whether a reconnect occurred.
@@ -577,6 +718,18 @@ func (m *Manager) Close() error {
 			lastErr = err
 		}
 	}
+
+	// Close any cached per-database connections opened for per-tab targeting
+	for key, db := range m.dbConnections {
+		if err := db.Disconnect(); err != nil {
+			m.logger.WithFields(logrus.Fields{
+				"key":   key,
+				"error": err,
+			}).Error("Failed to close per-database connection")
+			lastErr = err
+		}
+	}
+	m.dbConnections = make(map[string]Database)
 
 	// Clear the map
 	m.connections = make(map[string]Database)
@@ -817,8 +970,18 @@ func (f *Factory) GetSupportedTypes() []DatabaseType {
 
 // Multi-query methods
 
-// ExecuteMultiQuery executes a query spanning multiple connections
+// ExecuteMultiQuery executes a query spanning multiple connections, considering
+// every connected connection (legacy behavior).
 func (m *Manager) ExecuteMultiQuery(ctx context.Context, query string, options *multiquery.Options) (*multiquery.Result, error) {
+	return m.ExecuteMultiQueryScoped(ctx, query, nil, options)
+}
+
+// ExecuteMultiQueryScoped executes a query spanning multiple connections,
+// restricting federation to the supplied selectedConnectionIds. When
+// selectedConnectionIds is empty the legacy behavior is preserved (all
+// connected connections participate). The scope is intersected with the
+// connections the query actually references via @conn syntax.
+func (m *Manager) ExecuteMultiQueryScoped(ctx context.Context, query string, selectedConnectionIds []string, options *multiquery.Options) (*multiquery.Result, error) {
 	if m.multiQueryParser == nil || m.multiQueryExec == nil {
 		return nil, fmt.Errorf("multi-query support is not enabled")
 	}
@@ -839,6 +1002,24 @@ func (m *Manager) ExecuteMultiQuery(ctx context.Context, query string, options *
 		return nil, err
 	}
 
+	// Build the set of allowed connections (resolved to sessionIds) when a scope
+	// is provided. An empty scope means "no restriction" (legacy behavior).
+	var allowed map[string]struct{}
+	if len(selectedConnectionIds) > 0 {
+		allowed = make(map[string]struct{}, len(selectedConnectionIds))
+		m.mu.RLock()
+		for _, id := range selectedConnectionIds {
+			resolvedID := id
+			if _, exists := m.connections[id]; !exists {
+				if sessionID, ok := m.connectionNames[id]; ok {
+					resolvedID = sessionID
+				}
+			}
+			allowed[resolvedID] = struct{}{}
+		}
+		m.mu.RUnlock()
+	}
+
 	// Get database instances for execution
 	m.mu.RLock()
 	connections := make(map[string]multiquery.Database)
@@ -853,13 +1034,27 @@ func (m *Manager) ExecuteMultiQuery(ctx context.Context, query string, options *
 			}
 		}
 
+		// When a scope is provided, only connections that intersect with the
+		// selected set participate in federation/resolution.
+		if allowed != nil {
+			if _, ok := allowed[resolvedID]; !ok {
+				continue
+			}
+		}
+
 		if db, exists := m.connections[resolvedID]; exists {
 			connections[connID] = &databaseAdapter{db: db}
 		}
 	}
-	// For single-connection or no explicit connections, add all connections
+	// For single-connection or no explicit connections, add the eligible
+	// connections (the selected scope when provided, otherwise all).
 	if len(connections) == 0 {
 		for id, db := range m.connections {
+			if allowed != nil {
+				if _, ok := allowed[id]; !ok {
+					continue
+				}
+			}
 			connections[id] = &databaseAdapter{db: db}
 		}
 	}
