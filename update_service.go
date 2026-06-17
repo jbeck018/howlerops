@@ -51,6 +51,22 @@ func (s *UpdateService) OpenDownloadPage() error {
 	return s.checker.OpenDownloadPage()
 }
 
+// DownloadAndInstall updates the app in place via the official installer.
+func (s *UpdateService) DownloadAndInstall() error {
+	if s.checker == nil {
+		return fmt.Errorf("update checker not initialized")
+	}
+	return s.checker.DownloadAndInstall()
+}
+
+// RestartApp relaunches the updated app and quits the current instance.
+func (s *UpdateService) RestartApp() error {
+	if s.checker == nil {
+		return fmt.Errorf("update checker not initialized")
+	}
+	return s.checker.RestartApp()
+}
+
 // SetApp updates the application reference for the update checker
 func (s *UpdateService) SetApp(app *application.App) {
 	if s.checker != nil {

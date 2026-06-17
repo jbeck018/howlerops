@@ -24,6 +24,8 @@ const servicePrefixesByMethod: Record<string, readonly string[]> = {
   CheckBiometricAvailability: ['main.WailsAuthService'],
   CheckForUpdates: ['main.UpdateService'],
   CheckStoredToken: ['main.WailsAuthService'],
+  DownloadAndInstall: ['main.UpdateService'],
+  RestartApp: ['main.UpdateService'],
   CompareConnectionSchemas: ['main.SchemaDiffService'],
   CompareWithSnapshot: ['main.SchemaDiffService'],
   ConfigureAIProvider: ['main.WailsAIService'],
@@ -222,6 +224,8 @@ export const ListTableCatalogEntries = makeBinding('ListTableCatalogEntries')
 export const LoadAIMemorySessions = makeBinding('LoadAIMemorySessions')
 export const MarkColumnAsPII = makeBinding('MarkColumnAsPII')
 export const OpenDownloadPage = makeBinding('OpenDownloadPage')
+export const DownloadAndInstall = makeBinding('DownloadAndInstall')
+export const RestartApp = makeBinding('RestartApp')
 export const OpenEnvFileDialog = makeBinding('OpenEnvFileDialog')
 export const RecallAIMemorySessions = makeBinding('RecallAIMemorySessions')
 export const RefreshSchema = makeBinding('RefreshSchema')
