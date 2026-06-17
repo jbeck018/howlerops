@@ -22,6 +22,7 @@ type DatabaseManager interface {
 	ListConnections() []string
 	RemoveConnection(connectionID string) error
 	ListDatabases(ctx context.Context, connectionID string) ([]string, error)
+	GetDatabaseSchema(ctx context.Context, connectionID, databaseName string) ([]string, []database.TableInfo, error)
 	GetConnection(connectionID string) (database.Database, error)
 	UpdateRow(ctx context.Context, connectionID string, params database.UpdateRowParams) error
 	InsertRow(ctx context.Context, connectionID string, params database.InsertRowParams) (map[string]interface{}, error)
@@ -215,6 +216,12 @@ func (s *DatabaseService) ListConnections() []string {
 // GetConnection returns a database connection by ID
 func (s *DatabaseService) GetConnection(connectionID string) (database.Database, error) {
 	return s.manager.GetConnection(connectionID)
+}
+
+// GetDatabaseSchema returns schemas+tables for a specific database on a
+// connection without changing its active database (lazy schema explorer).
+func (s *DatabaseService) GetDatabaseSchema(connectionID, database string) ([]string, []database.TableInfo, error) {
+	return s.manager.GetDatabaseSchema(s.ctx, connectionID, database)
 }
 
 // ListDatabases returns databases available for the specified connection

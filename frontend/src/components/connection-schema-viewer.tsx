@@ -1,13 +1,17 @@
 import {
   AlertCircle,
+  ChevronDown,
+  ChevronRight,
   Database,
+  Folder,
+  FolderOpen,
   Loader2,
   Network,
   RefreshCw,
   Table,
   X,
 } from "lucide-react"
-import { useCallback,useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 
 import { SchemaTree } from "@/components/layout/sidebar"
@@ -33,85 +37,141 @@ interface SchemaNode {
   expanded?: boolean
 }
 
+// Build schema -> table tree nodes for one database from its tables, dropping
+// migration/system noise and sorting. Ids are namespaced by db to stay unique.
+function buildSchemaNodes(
+  connectionId: string,
+  dbName: string,
+  tables: Array<{ name?: string; schema?: string }>
+): SchemaNode[] {
+  const bySchema = new Map<string, string[]>()
+  for (const t of tables) {
+    const name = t.name || ''
+    const schemaName = t.schema || 'public'
+    if (!name) continue
+    if (
+      name === 'schema_migrations' ||
+      name === 'goose_db_version' ||
+      name === '_prisma_migrations' ||
+      name.startsWith('__drizzle') ||
+      schemaName.startsWith('pg_temp') ||
+      schemaName.startsWith('pg_toast')
+    ) {
+      continue
+    }
+    const arr = bySchema.get(schemaName) ?? []
+    arr.push(name)
+    bySchema.set(schemaName, arr)
+  }
+
+  return [...bySchema.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([schemaName, tableNames]) => ({
+      id: `${connectionId}-${dbName}-${schemaName}`,
+      name: schemaName,
+      type: 'schema' as const,
+      children: tableNames
+        .sort((a, b) => a.localeCompare(b))
+        .map((name) => ({
+          id: `${connectionId}-${dbName}-${schemaName}-${name}`,
+          name,
+          type: 'table' as const,
+          schema: schemaName,
+          children: [],
+        })),
+    }))
+}
+
 export function ConnectionSchemaViewer({ connectionId, onClose }: ConnectionSchemaViewerProps) {
   const { connections } = useConnectionStore()
-  const [schema, setSchema] = useState<SchemaNode[]>([])
-  const [loading, setLoading] = useState(false)
+  const connection = connections.find(conn => conn.id === connectionId)
+
+  const [databases, setDatabases] = useState<string[]>([])
+  const [loadingDatabases, setLoadingDatabases] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showVisualizer, setShowVisualizer] = useState(false)
 
-  const connection = connections.find(conn => conn.id === connectionId)
+  // Per-database lazy state: schema nodes / loading / error, keyed by db name.
+  const [dbSchemas, setDbSchemas] = useState<Record<string, SchemaNode[]>>({})
+  const [dbLoading, setDbLoading] = useState<Record<string, boolean>>({})
+  const [dbError, setDbError] = useState<Record<string, string>>({})
+  const [openDatabases, setOpenDatabases] = useState<Set<string>>(new Set())
 
-  const loadSchema = useCallback(async () => {
+  // Lazily load one database's schema (cached after first expand).
+  const loadDatabaseSchema = useCallback(async (dbName: string) => {
+    if (!connectionId) return
+    setDbLoading(prev => ({ ...prev, [dbName]: true }))
+    setDbError(prev => ({ ...prev, [dbName]: '' }))
+    try {
+      const { GetDatabaseSchema } = await import('../../bindings/github.com/jbeck018/howlerops/app')
+      const res = await GetDatabaseSchema(connectionId, dbName)
+      const tables = (res?.tables ?? []) as Array<{ name?: string; schema?: string }>
+      setDbSchemas(prev => ({ ...prev, [dbName]: buildSchemaNodes(connectionId, dbName, tables) }))
+    } catch (err) {
+      setDbError(prev => ({ ...prev, [dbName]: err instanceof Error ? err.message : 'Failed to load schema' }))
+    } finally {
+      setDbLoading(prev => ({ ...prev, [dbName]: false }))
+    }
+  }, [connectionId])
+
+  const loadDatabases = useCallback(async () => {
     if (!connectionId || !connection?.sessionId) {
-      setSchema([])
+      setDatabases([])
       return
     }
-
-    setLoading(true)
+    setLoadingDatabases(true)
     setError(null)
-
+    setDbSchemas({})
+    setDbError({})
     try {
-      // One cached, parallelized backend call (the same path the editor's
-      // autocomplete uses) instead of an N+1 of GetSchemas + per-schema
-      // GetTables, which made this dialog crawl on larger databases.
-      const { GetMultiConnectionSchema } = await import('../../bindings/github.com/jbeck018/howlerops/app')
-      const combined = await GetMultiConnectionSchema([connectionId])
-      const connSchema = combined?.connections?.[connectionId]
-      const tables = (connSchema?.tables ?? []) as Array<{ name?: string; schema?: string }>
-
-      // Group tables by schema, dropping migration/system noise.
-      const bySchema = new Map<string, string[]>()
-      for (const t of tables) {
-        const name = t.name || ''
-        const schemaName = t.schema || 'public'
-        if (!name) continue
-        if (
-          name === 'schema_migrations' ||
-          name === 'goose_db_version' ||
-          name === '_prisma_migrations' ||
-          name.startsWith('__drizzle') ||
-          schemaName.startsWith('pg_temp') ||
-          schemaName.startsWith('pg_toast')
-        ) {
-          continue
-        }
-        const arr = bySchema.get(schemaName) ?? []
-        arr.push(name)
-        bySchema.set(schemaName, arr)
+      const { ListConnectionDatabases } = await import('../../bindings/github.com/jbeck018/howlerops/app')
+      const res = await ListConnectionDatabases(connectionId)
+      if (res && res.success === false) {
+        throw new Error(res.message || 'Failed to list databases')
       }
+      const list = (res?.databases ?? []) as string[]
+      // Fall back to the connection's configured database if none were returned.
+      const names = list.length > 0 ? list : (connection.database ? [connection.database] : [])
+      setDatabases(names)
 
-      const schemaNodes: SchemaNode[] = [...bySchema.entries()]
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([schemaName, tableNames]) => ({
-          id: `${connectionId}-${schemaName}`,
-          name: schemaName,
-          type: 'schema' as const,
-          children: tableNames
-            .sort((a, b) => a.localeCompare(b))
-            .map((name) => ({
-              id: `${connectionId}-${schemaName}-${name}`,
-              name,
-              type: 'table' as const,
-              schema: schemaName,
-              children: [], // Columns loaded on demand
-            })),
-        }))
-
-      setSchema(schemaNodes)
+      // Auto-open and load the connection's current database (or the first).
+      const initial = connection.database && names.includes(connection.database) ? connection.database : names[0]
+      if (initial) {
+        setOpenDatabases(new Set([initial]))
+        void loadDatabaseSchema(initial)
+      } else {
+        setOpenDatabases(new Set())
+      }
     } catch (err) {
-      console.error('Failed to load schema:', err)
-      setError(err instanceof Error ? err.message : 'Failed to load schema')
+      setError(err instanceof Error ? err.message : 'Failed to list databases')
     } finally {
-      setLoading(false)
+      setLoadingDatabases(false)
     }
-  }, [connectionId, connection?.sessionId])
+  }, [connectionId, connection?.sessionId, connection?.database, loadDatabaseSchema])
+
+  const toggleDatabase = useCallback((dbName: string) => {
+    setOpenDatabases(prev => {
+      const next = new Set(prev)
+      if (next.has(dbName)) {
+        next.delete(dbName)
+      } else {
+        next.add(dbName)
+        if (!dbSchemas[dbName] && !dbLoading[dbName]) {
+          void loadDatabaseSchema(dbName)
+        }
+      }
+      return next
+    })
+  }, [dbSchemas, dbLoading, loadDatabaseSchema])
 
   useEffect(() => {
     if (connectionId) {
-      loadSchema()
+      loadDatabases()
     }
-  }, [connectionId, loadSchema])
+  }, [connectionId, loadDatabases])
+
+  // Aggregate of everything loaded so far (for the visualizer).
+  const allLoadedNodes = useMemo(() => Object.values(dbSchemas).flat(), [dbSchemas])
 
   if (!connectionId || !connection) {
     return null
@@ -131,7 +191,7 @@ export function ConnectionSchemaViewer({ connectionId, onClose }: ConnectionSche
             </Badge>
           </div>
           <div className="flex items-center gap-2">
-            {schema.length > 0 && (
+            {allLoadedNodes.length > 0 && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -145,24 +205,19 @@ export function ConnectionSchemaViewer({ connectionId, onClose }: ConnectionSche
             <Button
               variant="ghost"
               size="sm"
-              onClick={loadSchema}
-              disabled={loading}
+              onClick={loadDatabases}
+              disabled={loadingDatabases}
               className="h-8 px-2"
-              title="Refresh Schema"
+              title="Refresh"
             >
-              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+              <RefreshCw className={cn("h-4 w-4", loadingDatabases && "animate-spin")} />
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onClose}
-              className="h-8 w-8 p-0"
-            >
+            <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0">
               <X className="h-4 w-4" />
             </Button>
           </div>
         </CardHeader>
-        
+
         <CardContent className="flex-1 overflow-hidden pt-0">
           <ScrollArea className="h-full">
             {error ? (
@@ -172,24 +227,69 @@ export function ConnectionSchemaViewer({ connectionId, onClose }: ConnectionSche
                   <span>{error}</span>
                 </div>
               </div>
-            ) : loading ? (
+            ) : loadingDatabases && databases.length === 0 ? (
               <div className="flex items-center justify-center h-32 text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Loading schema...</span>
+                  <span>Loading databases...</span>
                 </div>
               </div>
-            ) : schema.length > 0 ? (
-              <SchemaTree 
-                key={connectionId || 'connection-schema-tree'}
-                nodes={schema} 
-              />
-            ) : (
+            ) : databases.length === 0 ? (
               <div className="flex items-center justify-center h-32 text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <Table className="h-4 w-4" />
-                  <span>No schemas found</span>
+                  <span>No databases found</span>
                 </div>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {databases.map((dbName) => {
+                  const isOpen = openDatabases.has(dbName)
+                  const nodes = dbSchemas[dbName]
+                  const isLoading = dbLoading[dbName]
+                  const dbErr = dbError[dbName]
+                  return (
+                    <div key={dbName}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start h-8 px-2"
+                        onClick={() => toggleDatabase(dbName)}
+                      >
+                        <div className="mr-1">
+                          {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                        </div>
+                        <div className="mr-2">
+                          {isOpen ? <FolderOpen className="h-4 w-4" /> : <Folder className="h-4 w-4" />}
+                        </div>
+                        <span className="text-sm truncate">{dbName}</span>
+                        {connection.database === dbName && (
+                          <Badge variant="secondary" className="ml-2 text-[10px]">current</Badge>
+                        )}
+                      </Button>
+
+                      {isOpen && (
+                        <div className="pl-4">
+                          {isLoading ? (
+                            <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              <span>Loading schema...</span>
+                            </div>
+                          ) : dbErr ? (
+                            <div className="flex items-center gap-2 px-2 py-2 text-xs text-destructive">
+                              <AlertCircle className="h-3 w-3" />
+                              <span>{dbErr}</span>
+                            </div>
+                          ) : nodes && nodes.length > 0 ? (
+                            <SchemaTree key={`${connectionId}-${dbName}`} nodes={nodes} />
+                          ) : (
+                            <p className="px-2 py-2 text-xs text-muted-foreground">No tables in this database.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </ScrollArea>
@@ -198,10 +298,10 @@ export function ConnectionSchemaViewer({ connectionId, onClose }: ConnectionSche
 
       {/* Schema Visualizer Modal */}
       {showVisualizer && (
-        <SchemaVisualizerWrapper 
-          schema={schema} 
+        <SchemaVisualizerWrapper
+          schema={allLoadedNodes}
           connectionId={connectionId}
-          onClose={() => setShowVisualizer(false)} 
+          onClose={() => setShowVisualizer(false)}
         />
       )}
     </div>,
