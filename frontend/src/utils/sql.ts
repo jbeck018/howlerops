@@ -226,6 +226,23 @@ const getSanitizedStatementAtIndex = (statements: SqlStatementSegment[], index: 
   return null
 }
 
+// Explicit transaction control — a script containing BEGIN/START TRANSACTION
+// must run as one batch (BEGIN…COMMIT), not a single statement under the cursor.
+const TRANSACTION_START_REGEX = /^(begin|start\s+transaction)\b/i
+
+const documentIsTransaction = (statements: SqlStatementSegment[]): boolean =>
+  statements.some((statement) => TRANSACTION_START_REGEX.test(sanitizeStatementText(statement.text).trimStart()))
+
+const buildBatchSql = (statements: SqlStatementSegment[]): string | null => {
+  const cleaned = statements
+    .map((statement) => sanitizeStatementText(statement.text))
+    .filter(Boolean)
+  if (!cleaned.length) {
+    return null
+  }
+  return `${cleaned.join(';\n')};`
+}
+
 export const buildExecutableSql = (
   documentText: string,
   options: {
@@ -243,6 +260,13 @@ export const buildExecutableSql = (
   const statements = parseStatements(documentText)
   if (!statements.length) {
     return null
+  }
+
+  // Run the whole script as one batch when it's an explicit transaction, so
+  // BEGIN … COMMIT (and every statement between) executes atomically rather
+  // than just the statement under the cursor.
+  if (documentIsTransaction(statements)) {
+    return buildBatchSql(statements)
   }
 
   const targetIndex = findStatementIndexForCursor(statements, cursorOffset)
