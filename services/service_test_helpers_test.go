@@ -154,6 +154,10 @@ func (s *stubDatabaseManager) ListDatabases(ctx context.Context, connectionID st
 	return []string{}, nil
 }
 
+func (s *stubDatabaseManager) GetDatabaseSchema(ctx context.Context, connectionID, databaseName string) ([]string, []database.TableInfo, error) {
+	return nil, nil, nil
+}
+
 func (s *stubDatabaseManager) GetConnection(connectionID string) (database.Database, error) {
 	if s.getConnectionFn != nil {
 		return s.getConnectionFn(connectionID)
