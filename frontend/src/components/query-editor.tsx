@@ -5,8 +5,8 @@ import { AIQueryTabView } from "@/components/ai-query-tab"
 import { AISchemaDisplay } from "@/components/ai-schema-display"
 import { AISuggestionCard } from "@/components/ai-suggestion-card"
 import { CodeMirrorEditor, type CodeMirrorEditorRef } from "@/components/codemirror-editor"
+import { ConnectionDatabasePicker } from "@/components/connection-database-picker"
 import { MultiDBDiagnostics } from "@/components/debug/multi-db-diagnostics"
-import { ModeSwitcher } from "@/components/mode-switcher"
 import { MultiDBConnectionSelector } from "@/components/multi-db-connection-selector"
 import { SavedQueriesPanel } from "@/components/saved-queries/SavedQueriesPanel"
 import { SaveQueryDialog } from "@/components/saved-queries/SaveQueryDialog"
@@ -153,7 +153,7 @@ export interface QueryEditorHandle {
 
 export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mode: propMode = 'single' }, ref) => {
   const { theme } = useTheme()
-  const { mode, canToggle, toggleMode, connectionCount } = useQueryMode(propMode)
+  const { mode, canToggle, toggleMode } = useQueryMode(propMode)
   const {
     activeConnection,
     connections,
@@ -1417,12 +1417,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
         {/* Top Header Bar with Mode Switcher and Global Actions */}
         <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/20">
           <div className="flex items-center gap-4">
-            <ModeSwitcher
-              mode={mode}
-              canToggle={canToggle}
-              toggleMode={toggleMode}
-              connectionCount={connectionCount}
-            />
+            <ConnectionDatabasePicker />
 
             {/* Environment and Connection Status */}
             <div className="flex items-center gap-2">
