@@ -538,8 +538,10 @@ jobs:
     name: Build Docker Image (Cloud Build)
     runs-on: ubuntu-latest
     needs: [create-release, build-binaries]
-    # Skip this job if GCP secrets are not configured
-    if: ${{ needs.create-release.outputs.has_gcp_secrets == 'true' }}
+    # Disabled: the GCP Cloud Build trigger fails on every release and nothing
+    # depends on this job. Re-enable (restore the has_gcp_secrets condition)
+    # once the Cloud Build path is fixed.
+    if: false
     permissions:
       contents: read
       id-token: write
