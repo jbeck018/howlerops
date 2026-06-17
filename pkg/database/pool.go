@@ -281,15 +281,57 @@ func (p *ConnectionPool) buildSQLiteDSN() string {
 	return dsn
 }
 
-// buildClickHouseDSN builds ClickHouse DSN
+// buildClickHouseDSN builds ClickHouse DSN.
+//
+// ClickHouse exposes two wire protocols on different ports: the native TCP
+// protocol (9000, or 9440 with TLS) and an HTTP interface (8123, or 8443 with
+// TLS — what ClickHouse Cloud exposes). The driver picks the protocol from the
+// DSN scheme (clickhouse:// = native, http:// / https:// = HTTP). Pointing the
+// native protocol at an HTTP port fails the handshake with
+// "unexpected packet [72] from server" (72 = 'H' from "HTTP/..."), so we select
+// the scheme from the port (overridable via a `protocol` parameter).
 func (p *ConnectionPool) buildClickHouseDSN() string {
 	dbName := p.config.Database
 	if dbName == "" {
 		dbName = maintenanceDatabase(ClickHouse)
 	}
-	// ClickHouse DSN format: clickhouse://username:password@host:port/database?param=value
-	dsn := fmt.Sprintf("clickhouse://%s:%s@%s:%d/%s",
-		p.config.Username, p.config.Password, p.config.Host, p.config.Port, dbName)
+
+	// Pick scheme/security from the port, then allow explicit overrides.
+	scheme := "clickhouse" // native
+	secure := p.config.SSLMode != "" && p.config.SSLMode != "disable"
+	switch p.config.Port {
+	case 8123: // native HTTP interface
+		scheme = "http"
+	case 8443: // HTTPS interface (ClickHouse Cloud)
+		scheme = "https"
+		secure = true
+	case 9440: // native protocol over TLS
+		scheme = "clickhouse"
+		secure = true
+	}
+
+	// Explicit override via parameters (protocol=http|https|native|tcp).
+	if proto, ok := p.config.Parameters["protocol"]; ok {
+		switch strings.ToLower(proto) {
+		case "http":
+			scheme = "http"
+		case "https":
+			scheme = "https"
+			secure = true
+		case "native", "tcp", "clickhouse":
+			scheme = "clickhouse"
+		}
+	}
+
+	// The driver rejects http+TLS and requires https to be secure.
+	if scheme == "http" {
+		secure = false
+	} else if scheme == "https" {
+		secure = true
+	}
+
+	dsn := fmt.Sprintf("%s://%s:%s@%s:%d/%s",
+		scheme, p.config.Username, p.config.Password, stripProtocol(p.config.Host), p.config.Port, dbName)
 
 	params := make(map[string]string)
 
@@ -298,16 +340,20 @@ func (p *ConnectionPool) buildClickHouseDSN() string {
 		params["dial_timeout"] = fmt.Sprintf("%ds", int(p.config.ConnectionTimeout.Seconds()))
 	}
 
-	// Add SSL/TLS configuration
-	if p.config.SSLMode != "" && p.config.SSLMode != "disable" {
+	// TLS: https implies secure; native uses the secure flag (9440 / SSLMode).
+	// http must never set secure (the driver errors on http+TLS).
+	if secure {
 		params["secure"] = "true"
 		if p.config.SSLMode == "skip-verify" {
 			params["skip_verify"] = "true"
 		}
 	}
 
-	// Add custom parameters
+	// Add custom parameters (skip the protocol override; it's not a driver param)
 	for key, value := range p.config.Parameters {
+		if key == "protocol" {
+			continue
+		}
 		params[key] = value
 	}
 
