@@ -1,12 +1,16 @@
 /**
- * Hook to automatically detect and manage query editor mode (single vs multi-DB)
- * Auto-switches based on number of connections
+ * Hook to manage the query editor's single vs multi-DB mode.
+ *
+ * Mode is stored PER TAB (query-editor-store tab.mode). When the active tab
+ * hasn't chosen a mode yet it falls back to auto-detect (multi when more than
+ * one connection exists) or an explicit initial mode. This keeps each tab's
+ * mode independent and persisted, instead of a single global flag.
  */
 
-import { useEffect,useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useConnectionStore } from '@/store/connection-store';
+import { useQueryEditorStore } from '@/store/query-editor-store';
 
 export type QueryMode = 'single' | 'multi';
 
@@ -19,35 +23,33 @@ export interface UseQueryModeReturn {
 }
 
 export function useQueryMode(initialMode?: 'auto' | QueryMode): UseQueryModeReturn {
-  const { connections } = useConnectionStore(useShallow((state) => ({
-    connections: state.connections,
-  })));
-  const connectionCount = connections.length;
+  const connectionCount = useConnectionStore((state) => state.connections.length);
+
+  const { activeTabId, activeTabMode, setTabMode } = useQueryEditorStore(
+    useShallow((state) => {
+      const tab = state.tabs.find((t) => t.id === state.activeTabId);
+      return {
+        activeTabId: state.activeTabId,
+        activeTabMode: tab?.mode,
+        setTabMode: state.setTabMode,
+      };
+    })
+  );
+
   const canToggle = connectionCount > 1;
 
-  // Calculate initial mode based on connection count
-  const getInitialMode = (): QueryMode => {
-    if (initialMode === 'auto' || !initialMode) {
-      return connectionCount > 1 ? 'multi' : 'single';
-    }
-    return initialMode as QueryMode;
-  };
+  const fallback: QueryMode =
+    initialMode === 'single' || initialMode === 'multi'
+      ? initialMode
+      : connectionCount > 1
+        ? 'multi'
+        : 'single';
 
-  const [mode, setMode] = useState<QueryMode>(getInitialMode);
-
-  // Auto-adjust mode when connection count changes
-  useEffect(() => {
-    if (initialMode === 'auto' || !initialMode) {
-      const newMode: QueryMode = connectionCount > 1 ? 'multi' : 'single';
-       
-      setMode(newMode);
-    }
-  }, [connectionCount, initialMode]);
+  const mode: QueryMode = activeTabMode ?? fallback;
 
   const toggleMode = () => {
-    if (canToggle) {
-      setMode((prev) => (prev === 'single' ? 'multi' : 'single'));
-    }
+    if (!canToggle || !activeTabId) return;
+    setTabMode(activeTabId, mode === 'single' ? 'multi' : 'single');
   };
 
   return {
@@ -61,9 +63,5 @@ export function useQueryMode(initialMode?: 'auto' | QueryMode): UseQueryModeRetu
 
 // Hook to check if multi-DB features should be enabled
 export function useMultiDBEnabled(): boolean {
-  const { connections } = useConnectionStore(useShallow((state) => ({
-    connections: state.connections,
-  })));
-  return connections.length > 1;
+  return useConnectionStore((state) => state.connections.length) > 1;
 }
-
