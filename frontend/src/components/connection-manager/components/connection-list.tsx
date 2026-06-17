@@ -1,8 +1,11 @@
-import { Database, Plus, Tag } from "lucide-react"
+import { ChevronDown, Database, Folder, FolderOpen, Plus } from "lucide-react"
+import { useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardTitle } from "@/components/ui/card"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { cn } from "@/lib/utils"
 
 import type { ConnectionGroup, DatabaseConnection } from "../types"
 import { ConnectionCard } from "./connection-card"
@@ -78,26 +81,13 @@ export function ConnectionList({
     </Card>
   )
 
-  // Grouped view
+  // Grouped view — each environment is a collapsible folder.
   if (groupByEnvironment) {
     if (groupedConnections.length > 0) {
       return (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {groupedConnections.map((group) => (
-            <div key={group.key} className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Tag className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold">{group.label}</h3>
-                </div>
-                <Badge variant="outline" className="text-xs">
-                  {group.connections.length} {group.connections.length === 1 ? 'connection' : 'connections'}
-                </Badge>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {group.connections.map(renderConnectionCard)}
-              </div>
-            </div>
+            <ConnectionFolderSection key={group.key} group={group} renderCard={renderConnectionCard} />
           ))}
         </div>
       )
@@ -125,5 +115,49 @@ export function ConnectionList({
               : 'No connections match this environment filter.'
           )}
     </div>
+  )
+}
+
+/**
+ * A single collapsible environment folder on the connections page. Defaults to
+ * open; collapse state is local so users can tuck away environments.
+ */
+function ConnectionFolderSection({
+  group,
+  renderCard,
+}: {
+  group: ConnectionGroup
+  renderCard: (connection: DatabaseConnection) => React.ReactNode
+}) {
+  const [open, setOpen] = useState(true)
+  const count = group.connections.length
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-lg border bg-card/40">
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-2 rounded-t-lg px-4 py-3 hover:bg-muted/40"
+        >
+          <div className="flex items-center gap-2">
+            <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", !open && "-rotate-90")} />
+            {open ? (
+              <FolderOpen className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <Folder className="h-4 w-4 text-muted-foreground" />
+            )}
+            <h3 className="text-sm font-semibold">{group.label}</h3>
+          </div>
+          <Badge variant="outline" className="text-xs">
+            {count} {count === 1 ? "connection" : "connections"}
+          </Badge>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="grid gap-4 p-4 pt-1 md:grid-cols-2 lg:grid-cols-3">
+          {group.connections.map(renderCard)}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
