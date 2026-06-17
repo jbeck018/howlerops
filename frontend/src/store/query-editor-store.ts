@@ -21,6 +21,7 @@ interface QueryEditorState {
   // Per-tab connection/mode helpers (centralize logic that used to live in the editor).
   setTabMode: (id: string, mode: QueryTabMode) => void
   setTabConnection: (id: string, connectionId: string) => void
+  setTabDatabase: (id: string, database: string) => void
   setTabSelectedConnections: (id: string, connectionIds: string[]) => void
   setActiveTab: (id: string) => void
   getActiveTab: () => QueryTab | undefined
@@ -126,7 +127,17 @@ export const useQueryEditorStore = create<QueryEditorState>()(
         setTabConnection: (id, connectionId) => {
           set((state) => ({
             tabs: state.tabs.map((tab) =>
-              tab.id === id ? { ...tab, connectionId, selectedConnectionIds: [connectionId] } : tab
+              // Changing the connection clears any per-tab database target, which
+              // belonged to the previous connection.
+              tab.id === id ? { ...tab, connectionId, database: undefined, selectedConnectionIds: [connectionId] } : tab
+            ),
+          }))
+        },
+
+        setTabDatabase: (id, database) => {
+          set((state) => ({
+            tabs: state.tabs.map((tab) =>
+              tab.id === id ? { ...tab, database: database || undefined } : tab
             ),
           }))
         },
@@ -182,6 +193,7 @@ export const useQueryEditorActions = () =>
       updateTab: state.updateTab,
       setTabMode: state.setTabMode,
       setTabConnection: state.setTabConnection,
+      setTabDatabase: state.setTabDatabase,
       setTabSelectedConnections: state.setTabSelectedConnections,
       setActiveTab: state.setActiveTab,
     }))

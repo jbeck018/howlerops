@@ -19,14 +19,13 @@ import { useActiveTab, useQueryEditorActions } from "@/store/query-editor-store"
  */
 export function ConnectionDatabasePicker() {
   const activeTab = useActiveTab()
-  const { setTabConnection, setTabSelectedConnections, setTabMode } = useQueryEditorActions()
+  const { setTabConnection, setTabDatabase, setTabSelectedConnections, setTabMode } = useQueryEditorActions()
 
   const {
     connections,
     setActiveConnection,
     connectToDatabase,
     fetchDatabases,
-    switchDatabase,
     getFilteredConnections,
     availableEnvironments,
     // Subscribed so the picker re-renders when the env filter changes.
@@ -37,7 +36,6 @@ export function ConnectionDatabasePicker() {
       setActiveConnection: s.setActiveConnection,
       connectToDatabase: s.connectToDatabase,
       fetchDatabases: s.fetchDatabases,
-      switchDatabase: s.switchDatabase,
       getFilteredConnections: s.getFilteredConnections,
       availableEnvironments: s.availableEnvironments,
       activeEnvironmentFilter: s.activeEnvironmentFilter,
@@ -52,6 +50,9 @@ export function ConnectionDatabasePicker() {
   const mode = activeTab?.mode ?? (connections.length > 1 ? "multi" : "single")
   const canMulti = envConnections.length >= 2
   const tabConn = connections.find((c) => c.id === activeTab?.connectionId)
+  // The database the tab targets: the per-tab override if set, else the
+  // connection's globally-active database.
+  const activeDatabase = activeTab?.database || tabConn?.database
   const selectedIds = activeTab?.selectedConnectionIds ?? []
   const tabConnId = tabConn?.id
   const tabConnConnected = tabConn?.isConnected
@@ -78,9 +79,14 @@ export function ConnectionDatabasePicker() {
     }
   }
 
-  const handleSwitchDatabase = async (db: string) => {
-    if (!tabConn) return
-    try { await switchDatabase(tabConn.id, db) } catch { /* surfaced elsewhere */ }
+  // Per-tab database targeting: set the database on the tab only, WITHOUT
+  // globally switching the connection's active database. This lets two tabs on
+  // the same connection target different databases. Execution threads
+  // tab.database into the query request.
+  const handleSwitchDatabase = (db: string) => {
+    if (!tabConn || !activeTab) return
+    setTabDatabase(activeTab.id, db)
+    setOpen(false)
   }
 
   const toggleMulti = (conn: DatabaseConnection) => {
@@ -97,7 +103,7 @@ export function ConnectionDatabasePicker() {
     mode === "multi"
       ? `Multi-DB · ${(selectedIds.length || envConnections.length)} DBs`
       : tabConn
-        ? `${tabConn.name}${tabConn.database ? ` · ${tabConn.database}` : ""}`
+        ? `${tabConn.name}${activeDatabase ? ` · ${activeDatabase}` : ""}`
         : "Select database"
 
   const connectedCount = envConnections.filter((c) => c.isConnected).length
@@ -173,17 +179,17 @@ export function ConnectionDatabasePicker() {
                     {dbLoading ? (
                       <p className="px-2 py-2 text-xs text-muted-foreground">Loading…</p>
                     ) : databases.length === 0 ? (
-                      <p className="px-2 py-1.5 text-xs text-muted-foreground">{tabConn.database || "—"}</p>
+                      <p className="px-2 py-1.5 text-xs text-muted-foreground">{activeDatabase || "—"}</p>
                     ) : (
                       databases.map((db) => (
                         <button
                           key={db}
                           type="button"
                           className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
-                          onClick={() => void handleSwitchDatabase(db)}
+                          onClick={() => handleSwitchDatabase(db)}
                         >
                           <span className="flex-1 truncate">{db}</span>
-                          {tabConn.database === db && <Check className="h-3 w-3 flex-shrink-0" />}
+                          {activeDatabase === db && <Check className="h-3 w-3 flex-shrink-0" />}
                         </button>
                       ))
                     )}

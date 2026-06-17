@@ -83,30 +83,33 @@ func (e *recordingEmitter) WaitFor(name string, timeout time.Duration) (*eventRe
 }
 
 type stubDatabaseManager struct {
-	createConnectionFn      func(ctx context.Context, config database.ConnectionConfig) (*database.Connection, error)
-	getMultiSchemaFn        func(ctx context.Context, connectionIDs []string) (*multiquery.CombinedSchema, error)
-	testConnectionFn        func(ctx context.Context, config database.ConnectionConfig) error
-	listConnectionsFn       func() []string
-	removeConnectionFn      func(connectionID string) error
-	listDatabasesFn         func(ctx context.Context, connectionID string) ([]string, error)
-	getConnectionFn         func(connectionID string) (database.Database, error)
-	updateRowFn             func(ctx context.Context, connectionID string, params database.UpdateRowParams) error
-	insertRowFn             func(ctx context.Context, connectionID string, params database.InsertRowParams) (map[string]interface{}, error)
-	deleteRowFn             func(ctx context.Context, connectionID string, params database.DeleteRowParams) error
-	switchDatabaseFn        func(ctx context.Context, connectionID string, databaseName string) (database.ConnectionConfig, bool, error)
-	getConnectionHealthFn   func(ctx context.Context, connectionID string) (*database.HealthStatus, error)
-	getConnectionStatsFn    func() map[string]database.PoolStats
-	healthCheckAllFn        func(ctx context.Context) map[string]*database.HealthStatus
-	closeFn                 func() error
-	executeMultiQueryFn     func(ctx context.Context, query string, options *multiquery.Options) (*multiquery.Result, error)
-	parseMultiQueryFn       func(query string) (*multiquery.ParsedQuery, error)
-	validateMultiQueryFn    func(parsed *multiquery.ParsedQuery) error
-	invalidateSchemaCacheFn func(connectionID string)
-	invalidateAllSchemasFn  func()
-	refreshSchemaFn         func(ctx context.Context, connectionID string) error
-	getSchemaCacheStatsFn   func() map[string]interface{}
-	getConnectionCountFn    func() int
-	getConnectionIDsFn      func() []string
+	createConnectionFn        func(ctx context.Context, config database.ConnectionConfig) (*database.Connection, error)
+	getMultiSchemaFn          func(ctx context.Context, connectionIDs []string) (*multiquery.CombinedSchema, error)
+	testConnectionFn          func(ctx context.Context, config database.ConnectionConfig) error
+	listConnectionsFn         func() []string
+	removeConnectionFn        func(connectionID string) error
+	listDatabasesFn           func(ctx context.Context, connectionID string) ([]string, error)
+	getConnectionFn           func(connectionID string) (database.Database, error)
+	updateRowFn               func(ctx context.Context, connectionID string, params database.UpdateRowParams) error
+	insertRowFn               func(ctx context.Context, connectionID string, params database.InsertRowParams) (map[string]interface{}, error)
+	deleteRowFn               func(ctx context.Context, connectionID string, params database.DeleteRowParams) error
+	switchDatabaseFn          func(ctx context.Context, connectionID string, databaseName string) (database.ConnectionConfig, bool, error)
+	getConnectionHealthFn     func(ctx context.Context, connectionID string) (*database.HealthStatus, error)
+	getConnectionStatsFn      func() map[string]database.PoolStats
+	healthCheckAllFn          func(ctx context.Context) map[string]*database.HealthStatus
+	closeFn                   func() error
+	executeMultiQueryFn       func(ctx context.Context, query string, options *multiquery.Options) (*multiquery.Result, error)
+	executeMultiQueryScopedFn func(ctx context.Context, query string, selectedConnectionIds []string, options *multiquery.Options) (*multiquery.Result, error)
+	executeOnDatabaseFn       func(ctx context.Context, connectionID, targetDatabase, query string, opts *database.QueryOptions) (*database.QueryResult, error)
+	getExecutionTargetFn      func(ctx context.Context, connectionID, targetDatabase string) (database.Database, error)
+	parseMultiQueryFn         func(query string) (*multiquery.ParsedQuery, error)
+	validateMultiQueryFn      func(parsed *multiquery.ParsedQuery) error
+	invalidateSchemaCacheFn   func(connectionID string)
+	invalidateAllSchemasFn    func()
+	refreshSchemaFn           func(ctx context.Context, connectionID string) error
+	getSchemaCacheStatsFn     func() map[string]interface{}
+	getConnectionCountFn      func() int
+	getConnectionIDsFn        func() []string
 }
 
 func (s *stubDatabaseManager) CreateConnection(ctx context.Context, config database.ConnectionConfig) (*database.Connection, error) {
@@ -219,6 +222,34 @@ func (s *stubDatabaseManager) ExecuteMultiQuery(ctx context.Context, query strin
 		return s.executeMultiQueryFn(ctx, query, options)
 	}
 	return &multiquery.Result{}, nil
+}
+
+func (s *stubDatabaseManager) ExecuteMultiQueryScoped(ctx context.Context, query string, selectedConnectionIds []string, options *multiquery.Options) (*multiquery.Result, error) {
+	if s.executeMultiQueryScopedFn != nil {
+		return s.executeMultiQueryScopedFn(ctx, query, selectedConnectionIds, options)
+	}
+	// Default delegates to the unscoped behavior so existing tests pass unchanged.
+	return s.ExecuteMultiQuery(ctx, query, options)
+}
+
+func (s *stubDatabaseManager) GetExecutionTarget(ctx context.Context, connectionID, targetDatabase string) (database.Database, error) {
+	if s.getExecutionTargetFn != nil {
+		return s.getExecutionTargetFn(ctx, connectionID, targetDatabase)
+	}
+	// Default resolves to the connection's live database (per-tab targeting off).
+	return s.GetConnection(connectionID)
+}
+
+func (s *stubDatabaseManager) ExecuteOnDatabase(ctx context.Context, connectionID, targetDatabase, query string, opts *database.QueryOptions) (*database.QueryResult, error) {
+	if s.executeOnDatabaseFn != nil {
+		return s.executeOnDatabaseFn(ctx, connectionID, targetDatabase, query, opts)
+	}
+	// Default resolves the target and executes, mirroring the live-connection path.
+	target, err := s.GetExecutionTarget(ctx, connectionID, targetDatabase)
+	if err != nil {
+		return nil, err
+	}
+	return target.ExecuteWithOptions(ctx, query, opts)
 }
 
 func (s *stubDatabaseManager) ParseMultiQuery(query string) (*multiquery.ParsedQuery, error) {

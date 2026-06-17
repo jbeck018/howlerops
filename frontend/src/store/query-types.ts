@@ -18,6 +18,7 @@ export interface QueryTab {
   executionStartTime?: Date
   lastExecuted?: Date
   connectionId?: string // Per-tab connection support (single-DB mode)
+  database?: string // Per-tab target database (single-DB mode); empty = connection's active database
   selectedConnectionIds?: string[] // Multi-select connections (multi-DB mode)
   environmentSnapshot?: string | null // Capture environment filter at creation
   mode?: QueryTabMode // Per-tab single/multi DB mode (overrides auto-detect)

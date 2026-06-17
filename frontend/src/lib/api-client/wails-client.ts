@@ -21,6 +21,7 @@ import type {
   ListDatabasesResult,
   PaginatedResponse,
   QueryColumn,
+  QueryExecOptions,
   QueryResult,
   QueryStats,
   SaveConnectionRequest,
@@ -142,9 +143,10 @@ export const wailsApiClient: ApiClient = {
       limit?: number,
       offset?: number,
       timeout?: number,
-      isExport?: boolean
+      isExport?: boolean,
+      execOptions?: QueryExecOptions
     ): Promise<ApiResponse<QueryResult>> => {
-      const result = await wailsEndpoints.queries.execute(connectionId, sql, limit, offset, timeout, isExport)
+      const result = await wailsEndpoints.queries.execute(connectionId, sql, limit, offset, timeout, isExport, execOptions)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Backend returns dynamic shape
       const data = (result.data || {}) as Record<string, any>
 

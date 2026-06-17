@@ -60,10 +60,14 @@ type HealthStatus struct {
 type QueryRequest struct {
 	ConnectionID string `json:"connectionId"`
 	Query        string `json:"query"`
-	Limit        int    `json:"limit,omitempty"`    // Page size (default 1000)
-	Offset       int    `json:"offset,omitempty"`   // NEW: Pagination offset
-	Timeout      int    `json:"timeout,omitempty"`  // seconds
-	IsExport     bool   `json:"isExport,omitempty"` // NEW: Bypass limits for exports
+	// Database optionally targets a specific database on the connection WITHOUT
+	// switching the connection's globally-active database (per-tab targeting).
+	// Empty preserves the legacy behavior (runs against the active database).
+	Database string `json:"database,omitempty"`
+	Limit    int    `json:"limit,omitempty"`    // Page size (default 1000)
+	Offset   int    `json:"offset,omitempty"`   // NEW: Pagination offset
+	Timeout  int    `json:"timeout,omitempty"`  // seconds
+	IsExport bool   `json:"isExport,omitempty"` // NEW: Bypass limits for exports
 }
 
 // QueryResponse represents a query execution response
@@ -252,11 +256,14 @@ type TableStructure struct {
 
 // MultiQueryRequest represents a multi-database query request
 type MultiQueryRequest struct {
-	Query    string            `json:"query"`
-	Limit    int               `json:"limit,omitempty"`
-	Timeout  int               `json:"timeout,omitempty"`  // seconds
-	Strategy string            `json:"strategy,omitempty"` // "auto", "federated", "push_down"
-	Options  map[string]string `json:"options,omitempty"`
+	Query string `json:"query"`
+	// SelectedConnectionIds scopes federation to these connections only. When
+	// empty, all connected connections participate (legacy behavior).
+	SelectedConnectionIds []string          `json:"selectedConnectionIds,omitempty"`
+	Limit                 int               `json:"limit,omitempty"`
+	Timeout               int               `json:"timeout,omitempty"`  // seconds
+	Strategy              string            `json:"strategy,omitempty"` // "auto", "federated", "push_down"
+	Options               map[string]string `json:"options,omitempty"`
 }
 
 // MultiQueryResponse represents a multi-database query response
