@@ -8,7 +8,7 @@ import { devtools, persist } from 'zustand/middleware'
 import { useShallow } from 'zustand/react/shallow'
 
 import { type DatabaseConnection } from './connection-store'
-import type { QueryTab, QueryTabType } from './query-types'
+import type { QueryTab, QueryTabMode, QueryTabType } from './query-types'
 
 interface QueryEditorState {
   tabs: QueryTab[]
@@ -18,6 +18,10 @@ interface QueryEditorState {
   createTab: (title?: string, options?: { connectionId?: string; type?: QueryTabType; aiSessionId?: string }) => string
   closeTab: (id: string) => void
   updateTab: (id: string, updates: Partial<QueryTab>) => void
+  // Per-tab connection/mode helpers (centralize logic that used to live in the editor).
+  setTabMode: (id: string, mode: QueryTabMode) => void
+  setTabConnection: (id: string, connectionId: string) => void
+  setTabSelectedConnections: (id: string, connectionIds: string[]) => void
   setActiveTab: (id: string) => void
   getActiveTab: () => QueryTab | undefined
 }
@@ -53,6 +57,11 @@ export const useQueryEditorStore = create<QueryEditorState>()(
             }
           }
 
+          // Seed the tab's query mode from the current connection count
+          // (multi when more than one connection exists), mirroring the old
+          // auto-detect. This is now per-tab so tabs remember their own mode.
+          const connectionCount = connectionState?.connections?.length ?? 0
+
           const newTab: QueryTab = {
             id: crypto.randomUUID(),
             title,
@@ -63,6 +72,7 @@ export const useQueryEditorStore = create<QueryEditorState>()(
             connectionId: initialConnectionId,
             selectedConnectionIds: initialConnectionId ? [initialConnectionId] : [],
             environmentSnapshot,
+            mode: connectionCount > 1 ? 'multi' : 'single',
             aiSessionId: options?.aiSessionId,
           }
 
@@ -107,6 +117,28 @@ export const useQueryEditorStore = create<QueryEditorState>()(
           }))
         },
 
+        setTabMode: (id, mode) => {
+          set((state) => ({
+            tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, mode } : tab)),
+          }))
+        },
+
+        setTabConnection: (id, connectionId) => {
+          set((state) => ({
+            tabs: state.tabs.map((tab) =>
+              tab.id === id ? { ...tab, connectionId, selectedConnectionIds: [connectionId] } : tab
+            ),
+          }))
+        },
+
+        setTabSelectedConnections: (id, connectionIds) => {
+          set((state) => ({
+            tabs: state.tabs.map((tab) =>
+              tab.id === id ? { ...tab, selectedConnectionIds: connectionIds } : tab
+            ),
+          }))
+        },
+
         setActiveTab: (id) => {
           set({ activeTabId: id })
         },
@@ -148,9 +180,12 @@ export const useQueryEditorActions = () =>
       createTab: state.createTab,
       closeTab: state.closeTab,
       updateTab: state.updateTab,
+      setTabMode: state.setTabMode,
+      setTabConnection: state.setTabConnection,
+      setTabSelectedConnections: state.setTabSelectedConnections,
       setActiveTab: state.setActiveTab,
     }))
   )
 
 // Re-export types
-export type { QueryTab, QueryTabType } from './query-types'
+export type { QueryTab, QueryTabMode, QueryTabType } from './query-types'
