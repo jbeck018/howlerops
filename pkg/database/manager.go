@@ -339,6 +339,70 @@ func (m *Manager) ListDatabases(ctx context.Context, connectionID string) ([]str
 	return db.ListDatabases(ctx)
 }
 
+// GetDatabaseSchema returns the schemas and tables for a specific database on a
+// connection WITHOUT changing the connection's active database. If databaseName
+// is empty or matches the connection's current database, the live connection is
+// reused; otherwise a transient connection to that database is opened, queried,
+// and closed. This powers the schema explorer's lazy per-database browsing.
+func (m *Manager) GetDatabaseSchema(ctx context.Context, connectionID, databaseName string) ([]string, []TableInfo, error) {
+	m.mu.RLock()
+	resolvedID := connectionID
+	if _, exists := m.connections[connectionID]; !exists {
+		if sessionID, ok := m.connectionNames[connectionID]; ok {
+			resolvedID = sessionID
+		}
+	}
+	db, exists := m.connections[resolvedID]
+	cfg, hasCfg := m.connectionConfigs[resolvedID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return nil, nil, fmt.Errorf("connection not found: %s", connectionID)
+	}
+
+	useLive := databaseName == "" ||
+		(hasCfg && strings.EqualFold(strings.TrimSpace(cfg.Database), strings.TrimSpace(databaseName)))
+
+	target := db
+	if !useLive {
+		if !hasCfg {
+			return nil, nil, fmt.Errorf("connection config not found: %s", connectionID)
+		}
+		tcfg := cfg
+		tcfg.Database = databaseName
+		tdb, err := m.createDatabaseInstance(tcfg)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to open database %q: %w", databaseName, err)
+		}
+		if err := tdb.Connect(ctx, tcfg); err != nil {
+			return nil, nil, fmt.Errorf("failed to connect to database %q: %w", databaseName, err)
+		}
+		defer func() {
+			if cerr := tdb.Disconnect(); cerr != nil {
+				m.logger.WithError(cerr).Warn("Failed to close transient schema connection")
+			}
+		}()
+		target = tdb
+	}
+
+	schemas, err := target.GetSchemas(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var tables []TableInfo
+	for _, sc := range schemas {
+		ts, terr := target.GetTables(ctx, sc)
+		if terr != nil {
+			m.logger.WithError(terr).WithField("schema", sc).Warn("Failed to list tables for schema")
+			continue
+		}
+		tables = append(tables, ts...)
+	}
+
+	return schemas, tables, nil
+}
+
 // SwitchDatabase switches the active database for a connection. Returns the updated config and whether a reconnect occurred.
 func (m *Manager) SwitchDatabase(ctx context.Context, connectionID, databaseName string) (ConnectionConfig, bool, error) {
 	var empty ConnectionConfig

@@ -54,6 +54,7 @@ const servicePrefixesByMethod: Record<string, readonly string[]> = {
   GetConnectionHealth: ['main.ConnectionService'],
   GetConnectionStats: ['main.ConnectionService'],
   GetCurrentVersion: ['main.UpdateService'],
+  GetDatabaseSchema: ['main.QueryService'],
   GetDatabaseVersion: ['main.ConnectionService'],
   GetEditableMetadata: ['main.CatalogService'],
   GetMultiConnectionSchema: ['main.QueryService'],
@@ -202,6 +203,7 @@ export const GetCatalogStats = makeBinding('GetCatalogStats')
 export const GetConnectionHealth = makeBinding('GetConnectionHealth')
 export const GetConnectionStats = makeBinding('GetConnectionStats')
 export const GetCurrentVersion = makeBinding('GetCurrentVersion')
+export const GetDatabaseSchema = makeBinding('GetDatabaseSchema')
 export const GetDatabaseVersion = makeBinding('GetDatabaseVersion')
 export const GetEditableMetadata = makeBinding('GetEditableMetadata')
 export const GetMultiConnectionSchema = makeBinding('GetMultiConnectionSchema')

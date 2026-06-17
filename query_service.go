@@ -275,6 +275,35 @@ func (s *QueryService) GetTables(connectionID, schema string) ([]TableInfo, erro
 	return result, nil
 }
 
+// DatabaseSchema is the schema (schemas + tables) of one database on a connection.
+type DatabaseSchema struct {
+	Schemas []string    `json:"schemas"`
+	Tables  []TableInfo `json:"tables"`
+}
+
+// GetDatabaseSchema returns the schemas and tables for a specific database on a
+// connection without changing the connection's active database. Powers the
+// schema explorer's lazy per-database browsing.
+func (s *QueryService) GetDatabaseSchema(connectionID, database string) (*DatabaseSchema, error) {
+	schemas, tables, err := s.deps.DatabaseService.GetDatabaseSchema(connectionID, database)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &DatabaseSchema{Schemas: schemas, Tables: make([]TableInfo, len(tables))}
+	for i, table := range tables {
+		result.Tables[i] = TableInfo{
+			Schema:    table.Schema,
+			Name:      table.Name,
+			Type:      table.Type,
+			Comment:   table.Comment,
+			RowCount:  table.RowCount,
+			SizeBytes: table.SizeBytes,
+		}
+	}
+	return result, nil
+}
+
 // GetTableStructure returns the structure of a table
 func (s *QueryService) GetTableStructure(connectionID, schema, table string) (*TableStructure, error) {
 	structure, err := s.deps.DatabaseService.GetTableStructure(connectionID, schema, table)
