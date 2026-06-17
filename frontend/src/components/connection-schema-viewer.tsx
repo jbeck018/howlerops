@@ -28,6 +28,7 @@ interface SchemaNode {
   id: string
   name: string
   type: 'database' | 'schema' | 'table' | 'column'
+  schema?: string
   children?: SchemaNode[]
   expanded?: boolean
 }
@@ -51,69 +52,51 @@ export function ConnectionSchemaViewer({ connectionId, onClose }: ConnectionSche
     setError(null)
 
     try {
-      // Import the Wails API dynamically
-      const { GetSchemas, GetTables } = await import('../../bindings/github.com/jbeck018/howlerops/app')
-      const schemas = await GetSchemas(connection.sessionId)
+      // One cached, parallelized backend call (the same path the editor's
+      // autocomplete uses) instead of an N+1 of GetSchemas + per-schema
+      // GetTables, which made this dialog crawl on larger databases.
+      const { GetMultiConnectionSchema } = await import('../../bindings/github.com/jbeck018/howlerops/app')
+      const combined = await GetMultiConnectionSchema([connectionId])
+      const connSchema = combined?.connections?.[connectionId]
+      const tables = (connSchema?.tables ?? []) as Array<{ name?: string; schema?: string }>
 
-      if (!schemas || !Array.isArray(schemas)) {
-        throw new Error('Failed to load schemas')
-      }
-
-      // Get tables for each schema
-      const schemaNames = (schemas as string[]) || []
-      const allTables: Array<{ name: string; schema: string }> = []
-      
-      for (const schemaName of schemaNames) {
-        try {
-          const tables = await GetTables(connection.sessionId, schemaName)
-          if (Array.isArray(tables)) {
-            allTables.push(...tables.map(table => ({
-              name: table.name || '',
-              schema: schemaName
-            })))
-          }
-        } catch (err) {
-          console.warn(`Failed to load tables for schema ${schemaName}:`, err)
-        }
-      }
-
-      // Convert to SchemaNode format
-      const schemaNodes: SchemaNode[] = []
-
-      // Process each schema
-      for (const schemaName of schemaNames) {
-        const schemaTables = allTables.filter(t => t.schema === schemaName)
-        
-        // Skip migration table and internal postgres tables
-        const nonMigrationTables = schemaTables.filter(t => 
-          t.name !== 'schema_migrations' && 
-          t.name !== 'goose_db_version' &&
-          t.name !== '_prisma_migrations' &&
-          !t.name.startsWith('__drizzle') &&
-          !schemaName.startsWith('pg_temp') &&
-          !schemaName.startsWith('pg_toast')
-        )
-        
-        // Skip empty schemas
-        if (nonMigrationTables.length === 0) {
+      // Group tables by schema, dropping migration/system noise.
+      const bySchema = new Map<string, string[]>()
+      for (const t of tables) {
+        const name = t.name || ''
+        const schemaName = t.schema || 'public'
+        if (!name) continue
+        if (
+          name === 'schema_migrations' ||
+          name === 'goose_db_version' ||
+          name === '_prisma_migrations' ||
+          name.startsWith('__drizzle') ||
+          schemaName.startsWith('pg_temp') ||
+          schemaName.startsWith('pg_toast')
+        ) {
           continue
         }
-        
-        const tablesWithColumns: SchemaNode[] = nonMigrationTables.map(table => ({
-          id: `${connectionId}-${schemaName}-${table.name}`,
-          name: table.name,
-          type: 'table' as const,
-          schema: table.schema,
-          children: [] // Columns loaded on demand
-        }))
-        
-        schemaNodes.push({
+        const arr = bySchema.get(schemaName) ?? []
+        arr.push(name)
+        bySchema.set(schemaName, arr)
+      }
+
+      const schemaNodes: SchemaNode[] = [...bySchema.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([schemaName, tableNames]) => ({
           id: `${connectionId}-${schemaName}`,
           name: schemaName,
           type: 'schema' as const,
-          children: tablesWithColumns
-        })
-      }
+          children: tableNames
+            .sort((a, b) => a.localeCompare(b))
+            .map((name) => ({
+              id: `${connectionId}-${schemaName}-${name}`,
+              name,
+              type: 'table' as const,
+              schema: schemaName,
+              children: [], // Columns loaded on demand
+            })),
+        }))
 
       setSchema(schemaNodes)
     } catch (err) {
