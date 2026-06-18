@@ -984,7 +984,7 @@ func TestAnthropicHealthCheck_Healthy(t *testing.T) {
 		var reqBody map[string]interface{}
 		json.Unmarshal(body, &reqBody)
 
-		assert.Equal(t, "claude-3-5-haiku-20241022", reqBody["model"])
+		assert.Equal(t, "claude-haiku-4-5", reqBody["model"])
 		assert.Equal(t, float64(10), reqBody["max_tokens"])
 
 		resp := map[string]interface{}{
@@ -997,7 +997,7 @@ func TestAnthropicHealthCheck_Healthy(t *testing.T) {
 					"text": "Hi",
 				},
 			},
-			"model": "claude-3-5-haiku-20241022",
+			"model": "claude-haiku-4-5",
 			"usage": map[string]int{
 				"input_tokens":  5,
 				"output_tokens": 2,
