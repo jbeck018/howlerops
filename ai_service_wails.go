@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
@@ -283,6 +284,18 @@ func (s *WailsAIService) ConfigureAIProvider(config ProviderConfig) error {
 			if org, ok := config.Options["organization"]; ok {
 				s.aiConfig.Codex.Organization = strings.TrimSpace(org)
 			}
+		}
+		// Codex authenticates via the local Codex CLI. When no key is supplied in
+		// the UI, resolve it from the environment, ~/.codex/auth.json, or a
+		// CODEX_AUTH_FILE-pointed file so the provider works out of the box.
+		if s.aiConfig.Codex.APIKey == "" {
+			if key, src := detectCodexCredentials(); key != "" {
+				s.aiConfig.Codex.APIKey = key
+				s.deps.Logger.WithField("source", src).Info("Resolved Codex credentials from local CLI")
+			}
+		}
+		if s.aiConfig.Codex.BaseURL == "" {
+			s.aiConfig.Codex.BaseURL = "https://api.openai.com/v1"
 		}
 		s.aiConfig.DefaultProvider = ai.ProviderCodex
 
@@ -1986,13 +1999,19 @@ func detectClaudeCredentials() (bool, string) {
 		return true, "credentials found in CLAUDE_CODE_OAUTH_TOKEN"
 	}
 
-	// Check ~/.claude/.credentials.json
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return false, ""
+	// Allow an explicitly pointed credentials file (CLAUDE_CREDENTIALS_FILE),
+	// then fall back to the Claude CLI's default ~/.claude/.credentials.json.
+	credPath := strings.TrimSpace(os.Getenv("CLAUDE_CREDENTIALS_FILE"))
+	source := "pointed file (CLAUDE_CREDENTIALS_FILE)"
+	if credPath == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return false, ""
+		}
+		credPath = filepath.Join(homeDir, ".claude", ".credentials.json")
+		source = "~/.claude/.credentials.json"
 	}
 
-	credPath := homeDir + "/.claude/.credentials.json"
 	if data, err := os.ReadFile(credPath); err == nil {
 		var creds struct {
 			ClaudeAiOauth struct {
@@ -2003,9 +2022,9 @@ func detectClaudeCredentials() (bool, string) {
 		if json.Unmarshal(data, &creds) == nil && creds.ClaudeAiOauth.AccessToken != "" {
 			// Check if token is not expired
 			if creds.ClaudeAiOauth.ExpiresAt > time.Now().Unix() {
-				return true, "credentials found in ~/.claude/.credentials.json"
+				return true, "credentials found in " + source
 			}
-			return false, "credentials expired in ~/.claude/.credentials.json"
+			return false, "credentials expired in " + source
 		}
 	}
 
@@ -2021,19 +2040,33 @@ func detectCodexCredentials() (string, string) {
 		return apiKey, "from CODEX_API_KEY environment variable"
 	}
 
-	// Check ~/.codex/auth.json
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", ""
+	// Allow an explicitly pointed auth file (CODEX_AUTH_FILE), then fall back to
+	// the Codex CLI's default ~/.codex/auth.json.
+	authPath := strings.TrimSpace(os.Getenv("CODEX_AUTH_FILE"))
+	source := "pointed file (CODEX_AUTH_FILE)"
+	if authPath == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", ""
+		}
+		authPath = filepath.Join(homeDir, ".codex", "auth.json")
+		source = "~/.codex/auth.json"
 	}
 
-	authPath := homeDir + "/.codex/auth.json"
 	if data, err := os.ReadFile(authPath); err == nil {
+		// The Codex CLI writes the API key under either OPENAI_API_KEY (current)
+		// or api_key (older builds), depending on how the user authenticated.
 		var auth struct {
-			ApiKey string `json:"api_key"`
+			OpenAIAPIKey string `json:"OPENAI_API_KEY"`
+			ApiKey       string `json:"api_key"`
 		}
-		if json.Unmarshal(data, &auth) == nil && auth.ApiKey != "" {
-			return auth.ApiKey, "from ~/.codex/auth.json"
+		if json.Unmarshal(data, &auth) == nil {
+			if auth.OpenAIAPIKey != "" {
+				return auth.OpenAIAPIKey, "from " + source
+			}
+			if auth.ApiKey != "" {
+				return auth.ApiKey, "from " + source
+			}
 		}
 	}
 

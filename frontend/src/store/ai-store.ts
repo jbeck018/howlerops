@@ -75,8 +75,10 @@ function buildProviderConfig(provider: string, config: AIConfig) {
     }
 
     case 'codex': {
+      // API key is optional: when blank the backend resolves it from the local
+      // Codex CLI (env, ~/.codex/auth.json, or a CODEX_AUTH_FILE-pointed file).
       payload.apiKey = config.codexApiKey
-      payload.model = config.selectedModel || 'code-davinci-002'
+      payload.model = config.selectedModel || 'gpt-5.3-codex'
       if (config.codexOrganization) {
         payload.options = { organization: config.codexOrganization }
       }
