@@ -120,6 +120,18 @@ type Database interface {
 	Execute(ctx context.Context, query string, args ...interface{}) (*QueryResult, error)
 }
 
+// FederationBackend executes multi-connection (@conn) queries through a true
+// cross-database engine (DuckDB ATTACH). It is optional: when the executor has
+// no backend, multi-connection queries fall back to the legacy single-backend
+// behavior. Implemented in the database package to avoid an import cycle.
+type FederationBackend interface {
+	// EnsureAttached attaches every named connection into the engine and returns
+	// a map of connection name -> engine catalog alias for rewriting @conn refs.
+	EnsureAttached(ctx context.Context, connectionNames []string) (map[string]string, error)
+	// Execute runs already-rewritten federation SQL against the engine.
+	Execute(ctx context.Context, sql string, timeout time.Duration) (*QueryResult, error)
+}
+
 // QueryResult represents a minimal query result (avoiding import cycles)
 type QueryResult struct {
 	Columns  []string

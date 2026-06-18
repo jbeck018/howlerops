@@ -12,9 +12,10 @@ import (
 
 // Executor executes multi-database queries
 type Executor struct {
-	config *Config
-	logger *logrus.Logger
-	merger *ResultMerger
+	config     *Config
+	logger     *logrus.Logger
+	merger     *ResultMerger
+	federation FederationBackend // optional; nil => legacy single-backend behavior
 }
 
 // NewExecutor creates a new executor
@@ -24,6 +25,14 @@ func NewExecutor(config *Config, logger *logrus.Logger) *Executor {
 		logger: logger,
 		merger: NewResultMerger(logger),
 	}
+}
+
+// NewExecutorWithFederation creates an executor that runs multi-connection
+// queries through a real cross-database engine (DuckDB ATTACH).
+func NewExecutorWithFederation(config *Config, logger *logrus.Logger, backend FederationBackend) *Executor {
+	e := NewExecutor(config, logger)
+	e.federation = backend
+	return e
 }
 
 // Execute executes a parsed multi-database query
@@ -133,8 +142,61 @@ func (e *Executor) executeSingle(
 	}, nil
 }
 
-// executeFederated executes queries across multiple connections and merges results
+// executeFederated runs a multi-connection query as true cross-database
+// federation through the DuckDB engine when available: it attaches every
+// referenced connection, rewrites @conn references to the attached aliases, and
+// executes the whole query in DuckDB so cross-database JOINs/aggregations work.
+// If no federation backend is configured (e.g. a build without the duckdb tag,
+// or a connection that can't be attached), it falls back to the legacy
+// single-backend behavior so nothing regresses.
 func (e *Executor) executeFederated(
+	ctx context.Context,
+	parsed *ParsedQuery,
+	connections map[string]Database,
+	options *Options,
+) (*Result, error) {
+	if e.federation == nil {
+		return e.executeFederatedLegacy(ctx, parsed, connections, options)
+	}
+
+	aliasMap, err := e.federation.EnsureAttached(ctx, parsed.RequiredConnections)
+	if err != nil {
+		e.logger.WithError(err).Warn("Federation attach failed; falling back to single-connection execution")
+		return e.executeFederatedLegacy(ctx, parsed, connections, options)
+	}
+
+	duckSQL, err := NewFederationRewriter(aliasMap).Rewrite(parsed.OriginalSQL)
+	if err != nil {
+		return nil, err
+	}
+
+	timeout := options.Timeout
+	if timeout <= 0 {
+		timeout = e.config.Timeout
+	}
+
+	res, err := e.federation.Execute(ctx, duckSQL, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("federated query execution failed: %w", err)
+	}
+
+	return &Result{
+		Columns:         res.Columns,
+		Rows:            res.Rows,
+		RowCount:        res.RowCount,
+		Duration:        res.Duration,
+		ConnectionsUsed: parsed.RequiredConnections,
+		Strategy:        StrategyFederated,
+		// Cross-database results span connections and are never editable.
+		Editable: nil,
+	}, nil
+}
+
+// executeFederatedLegacy is the pre-DuckDB behavior: it runs the whole query on
+// the first referenced connection after stripping @conn prefixes. Cross-DB
+// JOINs don't truly federate here — it's the graceful-degradation path used when
+// the DuckDB engine is unavailable.
+func (e *Executor) executeFederatedLegacy(
 	ctx context.Context,
 	parsed *ParsedQuery,
 	connections map[string]Database,

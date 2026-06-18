@@ -14,6 +14,7 @@ import (
 	"github.com/jbeck018/howlerops/internal/ai/catalog"
 	"github.com/jbeck018/howlerops/pkg/ai"
 	"github.com/jbeck018/howlerops/pkg/auth"
+	"github.com/jbeck018/howlerops/pkg/database"
 	"github.com/jbeck018/howlerops/pkg/federation/duckdb"
 	"github.com/jbeck018/howlerops/pkg/rag"
 	"github.com/jbeck018/howlerops/pkg/storage"
@@ -478,10 +479,14 @@ func (lc *AppLifecycle) initializeStorageManager(ctx context.Context) error {
 		lc.reportService.SetStorage(reportStorage)
 	}
 
-	// DuckDB federation engine.
+	// DuckDB federation engine. When it initializes, wire it into the database
+	// manager so multi-connection (@conn) queries run as real cross-database
+	// federation (ATTACH each backend, execute the joined query in DuckDB).
 	engine := duckdb.NewEngine(lc.logger, lc.databaseService.GetManager())
 	if err := engine.Initialize(ctx); err != nil {
 		lc.logger.WithError(err).Warn("Failed to initialize DuckDB federation engine")
+	} else if mgr, ok := lc.databaseService.GetManager().(*database.Manager); ok {
+		mgr.EnableFederation(engine)
 	}
 	lc.duckdbEngine = engine
 	lc.deps.DuckDBEngine = engine

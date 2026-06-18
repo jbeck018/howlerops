@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math/big"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,17 @@ type Engine struct {
 
 	// Extensions loaded
 	extensions map[string]bool
+
+	// attached tracks backend databases ATTACHed for cross-DB federation,
+	// keyed by the source connection's sessionId.
+	attached map[string]attachInfo
+}
+
+// attachInfo records an active ATTACH so it can be reused (idempotent attach)
+// or torn down when the underlying connection changes or is removed.
+type attachInfo struct {
+	alias       string
+	fingerprint string
 }
 
 // NewEngine creates a new DuckDB federation engine
@@ -33,6 +45,7 @@ func NewEngine(logger *logrus.Logger, connectionManager interface{}) *Engine {
 		logger:            logger,
 		connectionManager: connectionManager,
 		extensions:        make(map[string]bool),
+		attached:          make(map[string]attachInfo),
 	}
 }
 
@@ -142,9 +155,14 @@ func (e *Engine) ExecuteQuery(ctx context.Context, query string, timeout time.Du
 		return nil, fmt.Errorf("query validation failed: %w", err)
 	}
 
-	// Create timeout context
-	queryCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	// Create timeout context (only when a positive timeout is given; a zero/
+	// negative timeout means "no deadline").
+	queryCtx := ctx
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		queryCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 
 	start := time.Now()
 
@@ -176,6 +194,12 @@ func (e *Engine) ExecuteQuery(ctx context.Context, query string, timeout time.Du
 		// Scan row
 		if err := rows.Scan(valuePtrs...); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Normalize exotic DuckDB types (HUGEINT, BLOB, …) into JSON-friendly Go
+		// values so federated results render the same as direct query results.
+		for i := range values {
+			values[i] = normalizeValue(values[i])
 		}
 
 		resultRows = append(resultRows, values)
@@ -249,6 +273,34 @@ func (e *Engine) IsInitialized() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.db != nil
+}
+
+// normalizeValue converts DuckDB-specific value types into JSON-friendly Go
+// values so cross-database results match what direct queries return:
+//   - []byte (BLOB/bytea)          -> string
+//   - *big.Int / big.Int (HUGEINT) -> int64 when it fits, else its decimal string
+//
+// Everything else (numbers, strings, bools, time.Time, nil) passes through.
+func normalizeValue(v interface{}) interface{} {
+	switch x := v.(type) {
+	case []byte:
+		return string(x)
+	case *big.Int:
+		if x == nil {
+			return nil
+		}
+		if x.IsInt64() {
+			return x.Int64()
+		}
+		return x.String()
+	case big.Int:
+		if x.IsInt64() {
+			return x.Int64()
+		}
+		return x.String()
+	default:
+		return v
+	}
 }
 
 // QueryResult represents the result of a DuckDB query

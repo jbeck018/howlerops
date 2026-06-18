@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jbeck018/howlerops/pkg/database/multiquery"
+	"github.com/jbeck018/howlerops/pkg/federation/duckdb"
 	"github.com/sirupsen/logrus"
 )
 
@@ -97,7 +98,43 @@ type Manager struct {
 	multiQueryParser  *multiquery.QueryParser
 	multiQueryExec    *multiquery.Executor
 	multiQueryConfig  *multiquery.Config
-	schemaCache       *SchemaCache // Smart schema caching with change detection
+	federationEngine  *duckdb.Engine // optional DuckDB engine for cross-DB federation
+	schemaCache       *SchemaCache   // Smart schema caching with change detection
+}
+
+// EnableFederation wires a DuckDB engine into the multi-query executor so that
+// multi-connection (@conn) queries run as true cross-database federation
+// (ATTACH each backend, execute the joined query in DuckDB). Without this, such
+// queries fall back to running on a single connection.
+func (m *Manager) EnableFederation(engine *duckdb.Engine) {
+	if engine == nil || m.multiQueryConfig == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.federationEngine = engine
+	backend := &federationBackend{manager: m, engine: engine, logger: m.logger}
+	m.multiQueryExec = multiquery.NewExecutorWithFederation(m.multiQueryConfig, m.logger, backend)
+	m.logger.Info("Cross-database federation enabled (DuckDB)")
+}
+
+// connectionConfigForFederation resolves a connection name/sessionId to its
+// stored config and sessionId for building an ATTACH string.
+func (m *Manager) connectionConfigForFederation(name string) (ConnectionConfig, string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	sessionID := name
+	if _, ok := m.connections[name]; !ok {
+		if resolved, ok := m.lookupSessionByName(name); ok {
+			sessionID = resolved
+		}
+	}
+	cfg, ok := m.connectionConfigs[sessionID]
+	if !ok {
+		return ConnectionConfig{}, "", false
+	}
+	return cfg, sessionID, true
 }
 
 // NewManager creates a new database manager
@@ -304,6 +341,12 @@ func (m *Manager) RemoveConnection(connectionID string) error {
 	db, exists := m.connections[connectionID]
 	if !exists {
 		return fmt.Errorf("connection not found: %s", connectionID)
+	}
+
+	// Drop any federation attachment for this connection so a stale catalog
+	// isn't reused (the engine uses its own lock, so this is safe under m.mu).
+	if m.federationEngine != nil {
+		_ = m.federationEngine.Detach(context.Background(), connectionID)
 	}
 
 	// Close the connection
