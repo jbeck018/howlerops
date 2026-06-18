@@ -300,14 +300,39 @@ func (p *ConnectionPool) buildClickHouseDSN() string {
 	scheme := "clickhouse" // native
 	secure := p.config.SSLMode != "" && p.config.SSLMode != "disable"
 	switch p.config.Port {
-	case 8123: // native HTTP interface
+	case 8123: // HTTP interface (plain)
 		scheme = "http"
+		secure = false
 	case 8443: // HTTPS interface (ClickHouse Cloud)
 		scheme = "https"
 		secure = true
 	case 9440: // native protocol over TLS
 		scheme = "clickhouse"
 		secure = true
+	}
+
+	// The connection form sends `nativeProtocol` (true/false) as the user's
+	// explicit choice between the native TCP protocol and the HTTP interface.
+	// Honor it over the port heuristic, preserving the TLS decision the port
+	// already implied (so an HTTP port stays plain, an HTTPS port stays TLS).
+	// This value is consumed here and must never be forwarded to the driver,
+	// which would otherwise send it to ClickHouse as an unknown server setting
+	// ("Code: 115 ... Unknown setting 'nativeProtocol'").
+	if native, ok := p.config.Parameters["nativeProtocol"]; ok {
+		switch strings.ToLower(native) {
+		case "true", "1", "yes":
+			scheme = "clickhouse"
+		case "false", "0", "no":
+			// Switch to the HTTP interface; keep https if the port already
+			// selected it, otherwise fall back to secure-aware http/https.
+			if scheme == "clickhouse" {
+				if secure {
+					scheme = "https"
+				} else {
+					scheme = "http"
+				}
+			}
+		}
 	}
 
 	// Explicit override via parameters (protocol=http|https|native|tcp).
@@ -349,9 +374,11 @@ func (p *ConnectionPool) buildClickHouseDSN() string {
 		}
 	}
 
-	// Add custom parameters (skip the protocol override; it's not a driver param)
+	// Add custom parameters. Skip the connection-shaping keys consumed above
+	// (`protocol`, `nativeProtocol`): they are not driver parameters, and
+	// forwarding them makes ClickHouse reject the request as an unknown setting.
 	for key, value := range p.config.Parameters {
-		if key == "protocol" {
+		if key == "protocol" || key == "nativeProtocol" {
 			continue
 		}
 		params[key] = value
