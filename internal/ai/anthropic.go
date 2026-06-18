@@ -128,9 +128,10 @@ func (p *anthropicProvider) FixSQL(ctx context.Context, req *SQLRequest) (*SQLRe
 func (p *anthropicProvider) HealthCheck(ctx context.Context) (*HealthStatus, error) {
 	start := time.Now()
 
-	// Create a simple test request
+	// Create a simple test request. Use the cheapest current model; the prior
+	// pinned model (claude-3-5-haiku-20241022) is retired and now 404s.
 	testRequest := anthropicRequest{
-		Model:     "claude-3-5-haiku-20241022",
+		Model:     "claude-haiku-4-5",
 		MaxTokens: 10,
 		Messages: []anthropicMessage{
 			{

@@ -19,6 +19,7 @@ import (
 
 	"github.com/creack/pty"
 
+	"github.com/jbeck018/howlerops/internal/ai/catalog"
 	"github.com/jbeck018/howlerops/pkg/ai"
 	"github.com/jbeck018/howlerops/pkg/database"
 	"github.com/jbeck018/howlerops/pkg/rag"
@@ -503,6 +504,31 @@ func (s *WailsAIService) GetAvailableModels(provider string) ([]ModelInfoRespons
 			MaxTokens:   m.MaxTokens,
 			Source:      source,
 		})
+	}
+
+	// Enrich with models.dev catalog metadata (display names, context windows)
+	// and fall back to the catalog when the provider returned no models.
+	cat := catalog.Shared()
+	for i := range result {
+		if meta, ok := cat.Lookup(provider, result[i].ID); ok {
+			if strings.TrimSpace(result[i].Name) == "" || result[i].Name == result[i].ID {
+				result[i].Name = meta.Name
+			}
+			if result[i].MaxTokens == 0 {
+				result[i].MaxTokens = meta.Limit.Context
+			}
+		}
+	}
+	if len(result) == 0 {
+		for _, meta := range cat.Models(provider) {
+			result = append(result, ModelInfoResponse{
+				ID:        meta.ID,
+				Name:      meta.Name,
+				Provider:  provider,
+				MaxTokens: meta.Limit.Context,
+				Source:    "catalog",
+			})
+		}
 	}
 
 	return result, nil

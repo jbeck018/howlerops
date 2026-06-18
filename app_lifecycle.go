@@ -6,10 +6,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"github.com/jbeck018/howlerops/internal/ai/catalog"
 	"github.com/jbeck018/howlerops/pkg/ai"
 	"github.com/jbeck018/howlerops/pkg/auth"
 	"github.com/jbeck018/howlerops/pkg/federation/duckdb"
@@ -219,6 +221,19 @@ func (lc *AppLifecycle) OnStartup() {
 	lc.propagatePostStartupDeps()
 
 	lc.logger.Info("HowlerOps desktop application started")
+
+	// Refresh the models.dev catalog in the background so the model picker
+	// reflects newly released models without shipping a new release. Best-effort:
+	// failures fall back to the embedded snapshot.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		if err := catalog.Shared().Refresh(ctx); err != nil {
+			lc.logger.WithError(err).Debug("models.dev catalog refresh skipped")
+		} else {
+			lc.logger.Debug("models.dev catalog refreshed")
+		}
+	}()
 
 	// Emit app ready event.
 	lc.deps.emitEvent("app:startup-complete", map[string]interface{}{"status": "ready"})
