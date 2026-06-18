@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
@@ -284,7 +285,34 @@ func (s *WailsAIService) ConfigureAIProvider(config ProviderConfig) error {
 				s.aiConfig.Codex.Organization = strings.TrimSpace(org)
 			}
 		}
+		// Codex authenticates via the local Codex CLI. When no key is supplied in
+		// the UI, resolve it from the environment, ~/.codex/auth.json, or a
+		// CODEX_AUTH_FILE-pointed file so the provider works out of the box.
+		if s.aiConfig.Codex.APIKey == "" {
+			if key, src := detectCodexCredentials(); key != "" {
+				s.aiConfig.Codex.APIKey = key
+				s.deps.Logger.WithField("source", src).Info("Resolved Codex credentials from local CLI")
+			}
+		}
+		if s.aiConfig.Codex.BaseURL == "" {
+			s.aiConfig.Codex.BaseURL = "https://api.openai.com/v1"
+		}
 		s.aiConfig.DefaultProvider = ai.ProviderCodex
+
+	case "custom":
+		s.aiConfig.Custom.APIKey = strings.TrimSpace(config.APIKey)
+		s.aiConfig.Custom.BaseURL = openAICompatBaseURL(strings.TrimSpace(config.Endpoint))
+		if config.Options != nil {
+			if name, ok := config.Options["name"]; ok {
+				s.aiConfig.Custom.Name = strings.TrimSpace(name)
+			}
+		}
+		if config.Model != "" && !containsModel(s.aiConfig.Custom.Models, config.Model) {
+			// Keep the chosen model at the head of the list (newest-first), so
+			// buildAgentModelConfig picks it by default.
+			s.aiConfig.Custom.Models = append([]string{config.Model}, s.aiConfig.Custom.Models...)
+		}
+		s.aiConfig.DefaultProvider = ai.ProviderCustom
 
 	default:
 		return fmt.Errorf("unknown AI provider: %s", config.Provider)
@@ -348,6 +376,16 @@ func (s *WailsAIService) GetAIConfiguration() (ProviderConfig, error) {
 	case "huggingface":
 		config.Endpoint = s.aiConfig.HuggingFace.Endpoint
 		config.Model = s.aiConfig.HuggingFace.RecommendedModel
+
+	case "custom":
+		config.APIKey = maskSecret(s.aiConfig.Custom.APIKey)
+		config.Endpoint = s.aiConfig.Custom.BaseURL
+		if len(s.aiConfig.Custom.Models) > 0 {
+			config.Model = s.aiConfig.Custom.Models[0]
+		}
+		config.Options = map[string]string{
+			"name": s.aiConfig.Custom.Name,
+		}
 	}
 
 	return config, nil
@@ -412,12 +450,23 @@ func (s *WailsAIService) TestAIProvider(config ProviderConfig) (*ProviderStatus,
 		}
 		testConfig.DefaultProvider = ai.ProviderCodex
 
+	case "custom":
+		// A custom endpoint is OpenAI-compatible, so exercise it through the
+		// OpenAI provider against the supplied base URL.
+		testConfig.OpenAI.APIKey = strings.TrimSpace(config.APIKey)
+		testConfig.OpenAI.BaseURL = openAICompatBaseURL(strings.TrimSpace(config.Endpoint))
+		if config.Model != "" {
+			testConfig.OpenAI.Models = []string{config.Model}
+		}
+		testConfig.DefaultProvider = ai.ProviderOpenAI
+
 	default:
 		return nil, fmt.Errorf("unknown AI provider: %s", config.Provider)
 	}
 
-	// Remove other providers to avoid validation noise
-	if provider != "openai" {
+	// Remove other providers to avoid validation noise. "custom" is tested via
+	// the OpenAI slot above, so keep that key in place for it too.
+	if provider != "openai" && provider != "custom" {
 		testConfig.OpenAI.APIKey = ""
 	}
 	if provider != "anthropic" {
@@ -1986,13 +2035,19 @@ func detectClaudeCredentials() (bool, string) {
 		return true, "credentials found in CLAUDE_CODE_OAUTH_TOKEN"
 	}
 
-	// Check ~/.claude/.credentials.json
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return false, ""
+	// Allow an explicitly pointed credentials file (CLAUDE_CREDENTIALS_FILE),
+	// then fall back to the Claude CLI's default ~/.claude/.credentials.json.
+	credPath := strings.TrimSpace(os.Getenv("CLAUDE_CREDENTIALS_FILE"))
+	source := "pointed file (CLAUDE_CREDENTIALS_FILE)"
+	if credPath == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return false, ""
+		}
+		credPath = filepath.Join(homeDir, ".claude", ".credentials.json")
+		source = "~/.claude/.credentials.json"
 	}
 
-	credPath := homeDir + "/.claude/.credentials.json"
 	if data, err := os.ReadFile(credPath); err == nil {
 		var creds struct {
 			ClaudeAiOauth struct {
@@ -2003,9 +2058,9 @@ func detectClaudeCredentials() (bool, string) {
 		if json.Unmarshal(data, &creds) == nil && creds.ClaudeAiOauth.AccessToken != "" {
 			// Check if token is not expired
 			if creds.ClaudeAiOauth.ExpiresAt > time.Now().Unix() {
-				return true, "credentials found in ~/.claude/.credentials.json"
+				return true, "credentials found in " + source
 			}
-			return false, "credentials expired in ~/.claude/.credentials.json"
+			return false, "credentials expired in " + source
 		}
 	}
 
@@ -2021,19 +2076,33 @@ func detectCodexCredentials() (string, string) {
 		return apiKey, "from CODEX_API_KEY environment variable"
 	}
 
-	// Check ~/.codex/auth.json
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", ""
+	// Allow an explicitly pointed auth file (CODEX_AUTH_FILE), then fall back to
+	// the Codex CLI's default ~/.codex/auth.json.
+	authPath := strings.TrimSpace(os.Getenv("CODEX_AUTH_FILE"))
+	source := "pointed file (CODEX_AUTH_FILE)"
+	if authPath == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", ""
+		}
+		authPath = filepath.Join(homeDir, ".codex", "auth.json")
+		source = "~/.codex/auth.json"
 	}
 
-	authPath := homeDir + "/.codex/auth.json"
 	if data, err := os.ReadFile(authPath); err == nil {
+		// The Codex CLI writes the API key under either OPENAI_API_KEY (current)
+		// or api_key (older builds), depending on how the user authenticated.
 		var auth struct {
-			ApiKey string `json:"api_key"`
+			OpenAIAPIKey string `json:"OPENAI_API_KEY"`
+			ApiKey       string `json:"api_key"`
 		}
-		if json.Unmarshal(data, &auth) == nil && auth.ApiKey != "" {
-			return auth.ApiKey, "from ~/.codex/auth.json"
+		if json.Unmarshal(data, &auth) == nil {
+			if auth.OpenAIAPIKey != "" {
+				return auth.OpenAIAPIKey, "from " + source
+			}
+			if auth.ApiKey != "" {
+				return auth.ApiKey, "from " + source
+			}
 		}
 	}
 

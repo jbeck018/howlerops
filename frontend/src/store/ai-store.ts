@@ -75,10 +75,24 @@ function buildProviderConfig(provider: string, config: AIConfig) {
     }
 
     case 'codex': {
+      // API key is optional: when blank the backend resolves it from the local
+      // Codex CLI (env, ~/.codex/auth.json, or a CODEX_AUTH_FILE-pointed file).
       payload.apiKey = config.codexApiKey
-      payload.model = config.selectedModel || 'code-davinci-002'
+      payload.model = config.selectedModel || 'gpt-5.3-codex'
       if (config.codexOrganization) {
         payload.options = { organization: config.codexOrganization }
+      }
+      break
+    }
+
+    case 'custom': {
+      // User-defined OpenAI-compatible endpoint (Bedrock/Mantle gateway, Groq,
+      // OpenRouter, vLLM, …): base URL + key + a free-form model id.
+      payload.apiKey = config.customApiKey
+      payload.endpoint = config.customBaseUrl
+      payload.model = config.selectedModel || undefined
+      if (config.customName) {
+        payload.options = { name: config.customName }
       }
       break
     }
@@ -89,7 +103,7 @@ function buildProviderConfig(provider: string, config: AIConfig) {
 
 export interface AIConfig {
   enabled: boolean
-  provider: 'openai' | 'anthropic' | 'ollama' | 'huggingface' | 'claudecode' | 'codex'
+  provider: 'openai' | 'anthropic' | 'ollama' | 'huggingface' | 'claudecode' | 'codex' | 'custom'
   openaiApiKey: string
   anthropicApiKey: string
   claudeCodePath: string  // Path to Claude CLI executable
@@ -97,6 +111,9 @@ export interface AIConfig {
   codexOrganization: string // OpenAI organization ID for Codex
   ollamaEndpoint: string
   huggingfaceEndpoint: string
+  customName: string      // Label for the custom OpenAI-compatible endpoint
+  customApiKey: string    // API key for the custom endpoint
+  customBaseUrl: string   // Base URL of the custom OpenAI-compatible endpoint
   selectedModel: string
   maxTokens: number
   temperature: number
@@ -127,6 +144,7 @@ export interface AIState {
     huggingface: 'connected' | 'disconnected' | 'testing' | 'error'
     claudecode: 'connected' | 'disconnected' | 'testing' | 'error'
     codex: 'connected' | 'disconnected' | 'testing' | 'error'
+    custom: 'connected' | 'disconnected' | 'testing' | 'error'
   }
   memoriesHydrated: boolean
   providerSynced: boolean
@@ -171,6 +189,9 @@ const defaultConfig: AIConfig = {
   codexOrganization: '',
   ollamaEndpoint: 'http://localhost:11434',
   huggingfaceEndpoint: 'http://localhost:11434',
+  customName: '',
+  customApiKey: '',
+  customBaseUrl: '',
   selectedModel: getDefaultModelId('openai'),
   maxTokens: 2048,
   temperature: 0.1,
@@ -191,6 +212,7 @@ const defaultState: AIState = {
     huggingface: 'disconnected',
     claudecode: 'disconnected',
     codex: 'disconnected',
+    custom: 'disconnected',
   },
   memoriesHydrated: false,
   providerSynced: false,

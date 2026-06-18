@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2 } from 'lucide-react'
 import React, { useCallback, useMemo, useState } from 'react'
 
 import { Button } from './ui/button'
@@ -12,6 +12,8 @@ export interface PaginationControlsProps {
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
   disabled?: boolean
+  /** Show a spinner next to the row range while a page is loading. */
+  isLoading?: boolean
   compact?: boolean
 }
 
@@ -24,6 +26,7 @@ export const PaginationControls = React.memo(function PaginationControls({
   onPageChange,
   onPageSizeChange,
   disabled = false,
+  isLoading = false,
   compact = false,
 }: PaginationControlsProps) {
   const [jumpToPage, setJumpToPage] = useState('')
@@ -117,7 +120,8 @@ export const PaginationControls = React.memo(function PaginationControls({
       </div>
 
       {/* Row range display */}
-      <div className="text-muted-foreground whitespace-nowrap">
+      <div className="flex items-center gap-1.5 text-muted-foreground whitespace-nowrap">
+        {isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
         {startRow.toLocaleString()}–{endRow.toLocaleString()} of {totalRows.toLocaleString()}
       </div>
 

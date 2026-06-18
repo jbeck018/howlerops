@@ -21,6 +21,7 @@ import { type DatabaseConnection, useConnectionStore } from "@/store/connection-
 import { useQueryEditorStore } from "@/store/query-editor-store"
 
 import { ConnectionRow } from "./connection-row"
+import { SidebarUpdateCard } from "./sidebar-update-card"
 
 // Re-exported for consumers that render schema trees outside the sidebar.
 export { SchemaTree } from "./schema-tree"
@@ -201,6 +202,9 @@ export function Sidebar() {
           <div className="flex-1" />
         </div>
       </ScrollArea>
+
+      {/* Pinned update card — only renders when an update is available. */}
+      <SidebarUpdateCard />
 
       {/* Connection Schema Viewer Modal */}
       {schemaViewConnectionId && (

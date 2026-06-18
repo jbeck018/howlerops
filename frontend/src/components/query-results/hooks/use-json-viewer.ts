@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 import type { QueryResultRow } from '../../../store/query-store'
 import type { TableRow } from '../../../types/table'
@@ -24,15 +24,23 @@ export function useJsonViewer({ rows }: UseJsonViewerOptions): UseJsonViewerRetu
   const [selectedRowData, setSelectedRowData] = useState<TableRow | null>(null)
   const [selectedRowIndex, setSelectedRowIndex] = useState<number>(0)
 
+  // Keep the latest rows in a ref so the row-click/navigate callbacks can read
+  // current data without depending on the `rows` array identity. handleRowClick
+  // is passed into the grid's columnDefs (as onRowInspect); if it changed every
+  // time `rows` got a new reference (every page load / in-place patch), the grid
+  // would regenerate its columns and reconcile unnecessarily.
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
+
   const handleRowClick = useCallback((rowId: string, rowData: TableRow) => {
     // Find the index of this row in the current rows array
-    const rowIndex = rows.findIndex(row => row.__rowId === rowId)
+    const rowIndex = rowsRef.current.findIndex(row => row.__rowId === rowId)
 
     setSelectedRowId(rowId)
     setSelectedRowData(rowData)
     setSelectedRowIndex(rowIndex >= 0 ? rowIndex : 0)
     setJsonViewerOpen(true)
-  }, [rows])
+  }, [])
 
   const handleCloseJsonViewer = useCallback(() => {
     setJsonViewerOpen(false)
@@ -42,12 +50,13 @@ export function useJsonViewer({ rows }: UseJsonViewerOptions): UseJsonViewerRetu
   }, [])
 
   const handleNavigateRow = useCallback((direction: 'prev' | 'next') => {
+    const currentRows = rowsRef.current
     const newIndex = direction === 'prev' ? selectedRowIndex - 1 : selectedRowIndex + 1
 
     // Bounds check
-    if (newIndex < 0 || newIndex >= rows.length) return
+    if (newIndex < 0 || newIndex >= currentRows.length) return
 
-    const newRow = rows[newIndex]
+    const newRow = currentRows[newIndex]
     if (!newRow) return
 
     setSelectedRowIndex(newIndex)
@@ -55,7 +64,7 @@ export function useJsonViewer({ rows }: UseJsonViewerOptions): UseJsonViewerRetu
     // Type assertion is safe because QueryResultRow extends Record<string, unknown>
     // and we're using it as TableRow which has the same shape
     setSelectedRowData(newRow as TableRow)
-  }, [selectedRowIndex, rows])
+  }, [selectedRowIndex])
 
   const clearSelection = useCallback(() => {
     setJsonViewerOpen(false)

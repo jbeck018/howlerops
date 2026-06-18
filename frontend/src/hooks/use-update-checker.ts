@@ -2,7 +2,7 @@ import { useCallback,useEffect, useState } from 'react';
 
 import { isWailsEnvironment } from '@/lib/wails-runtime';
 
-import { CheckForUpdates, GetCurrentVersion, OpenDownloadPage } from '../../bindings/github.com/jbeck018/howlerops/app';
+import { CheckForUpdates, DownloadAndInstall, GetCurrentVersion, OpenDownloadPage, RestartApp } from '../../bindings/github.com/jbeck018/howlerops/app';
 
 export interface UpdateInfo {
   available: boolean;
@@ -20,6 +20,13 @@ export interface UseUpdateCheckerReturn {
   checkForUpdates: () => Promise<void>;
   dismissUpdate: () => void;
   openDownloadPage: () => Promise<void>;
+  /**
+   * Install the available update in place via the bundled installer, then
+   * relaunch the app so the new version takes over. This is the one-click
+   * "Relaunch to update" action surfaced in the sidebar card.
+   */
+  downloadAndRestart: () => Promise<void>;
+  isInstalling: boolean;
   currentVersion: string;
 }
 
@@ -29,6 +36,7 @@ const DISMISSED_UPDATE_KEY = 'howlerops_dismissed_update';
 export function useUpdateChecker(): UseUpdateCheckerReturn {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [isChecking, setIsChecking] = useState(false);
+  const [isInstalling, setIsInstalling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentVersion, setCurrentVersion] = useState<string>('');
 
@@ -73,6 +81,29 @@ export function useUpdateChecker(): UseUpdateCheckerReturn {
     }
     setUpdateInfo(null);
   }, [updateInfo]);
+
+  // Install the update in place and relaunch (only in Wails environment).
+  const downloadAndRestart = useCallback(async () => {
+    if (!isWailsEnvironment()) {
+      return;
+    }
+
+    setIsInstalling(true);
+    setError(null);
+
+    try {
+      // Replace the installed app/binary in place via the bundled installer...
+      await DownloadAndInstall();
+      // ...then relaunch so the freshly installed version takes over. The
+      // current process quits inside RestartApp, so anything after this is a
+      // best-effort fallback if the relaunch didn't fire.
+      await RestartApp();
+    } catch (err) {
+      console.error('Failed to install update:', err);
+      setError(err instanceof Error ? err.message : 'Failed to install update');
+      setIsInstalling(false);
+    }
+  }, []);
 
   // Open download page (only in Wails environment)
   const openDownloadPage = useCallback(async () => {
@@ -135,6 +166,8 @@ export function useUpdateChecker(): UseUpdateCheckerReturn {
     checkForUpdates,
     dismissUpdate,
     openDownloadPage,
+    downloadAndRestart,
+    isInstalling,
     currentVersion,
   };
 }

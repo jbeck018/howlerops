@@ -153,6 +153,29 @@ func (s *serviceImpl) initializeProviders() error {
 		}
 	}
 
+	// Initialize a custom OpenAI-compatible provider if configured. It speaks the
+	// OpenAI API, so it is served by the OpenAI provider pointed at the custom
+	// base URL (registered under ProviderCustom so it dispatches independently).
+	if s.config.Custom.BaseURL != "" {
+		cfg := &OpenAIConfig{
+			APIKey:  s.config.Custom.APIKey,
+			BaseURL: s.config.Custom.BaseURL,
+			Models:  s.config.Custom.Models,
+		}
+		provider, err := NewOpenAIProvider(cfg, s.logger)
+		if err != nil {
+			s.logger.WithError(err).Warn("Failed to initialize custom OpenAI-compatible provider")
+		} else {
+			s.providers[ProviderCustom] = provider
+			s.usage[ProviderCustom] = &Usage{
+				Provider:     ProviderCustom,
+				RequestCount: 0,
+				TokensUsed:   0,
+				SuccessRate:  1.0,
+			}
+		}
+	}
+
 	if len(s.providers) == 0 {
 		s.logger.Warn("No AI providers configured - AI features will be unavailable")
 	} else {

@@ -16,6 +16,11 @@ interface UseTableEditingOptions {
   query: string
   tableContextRef: React.MutableRefObject<EditableTableContext | null>
   updateResultRows: (resultId: string, rows: QueryResultRow[], originalRows: Record<string, QueryResultRow>) => void
+  /**
+   * Patch only the changed rows in place (identity-stable). Used on save so the
+   * grid refreshes just the edited rows instead of re-rendering the whole table.
+   */
+  patchResultRows: (resultId: string, patches: Record<string, QueryResultRow>, originalRows?: Record<string, QueryResultRow>) => void
 }
 
 interface UseTableEditingReturn {
@@ -49,6 +54,7 @@ export function useTableEditing({
   query,
   tableContextRef,
   updateResultRows,
+  patchResultRows,
 }: UseTableEditingOptions): UseTableEditingReturn {
   const [dirtyRowIds, setDirtyRowIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
@@ -195,16 +201,18 @@ export function useTableEditing({
     setSaving(true)
 
     try {
-      const updatedRows = [...currentRows]
-      const newOriginalRows: Record<string, QueryResultRow> = { ...originalRows }
+      // Only the dirty rows change — collect their committed values into a patch
+      // map so the store can swap those rows in place and leave every other row's
+      // identity untouched (no whole-table re-render / flash on save).
+      const rowPatches: Record<string, QueryResultRow> = {}
+      const newOriginalRows: Record<string, QueryResultRow> = {}
 
       for (const rowId of dirtyRowIds) {
-        const rowIndex = updatedRows.findIndex((row) => row.__rowId === rowId)
-        if (rowIndex === -1) {
+        const currentRow = currentRows.find((row) => row.__rowId === rowId)
+        if (!currentRow) {
           continue
         }
 
-        const currentRow = updatedRows[rowIndex]
         const originalRow = originalRows[rowId]
         const isNewRow = currentRow.__isNewRow || !originalRow
 
@@ -238,7 +246,7 @@ export function useTableEditing({
             }
           })
 
-          updatedRows[rowIndex] = persistedRow
+          rowPatches[rowId] = persistedRow
           const snapshot = { ...persistedRow }
           delete snapshot.__isNewRow
           newOriginalRows[rowId] = snapshot
@@ -287,12 +295,13 @@ export function useTableEditing({
           throw new Error(response.message || 'Failed to save changes')
         }
 
-        const snapshot = { ...currentRow }
-        delete snapshot.__isNewRow
-        newOriginalRows[rowId] = snapshot
+        const committedRow: QueryResultRow = { ...currentRow }
+        delete committedRow.__isNewRow
+        rowPatches[rowId] = committedRow
+        newOriginalRows[rowId] = { ...committedRow }
       }
 
-      updateResultRows(resultId, updatedRows, newOriginalRows)
+      patchResultRows(resultId, rowPatches, newOriginalRows)
       setDirtyRowIds([])
       tableContextRef.current?.actions.clearDirtyRows()
       tableContextRef.current?.actions.clearInvalidCells()
@@ -323,7 +332,7 @@ export function useTableEditing({
     resolveCurrentRows,
     rows,
     tableContextRef,
-    updateResultRows,
+    patchResultRows,
   ])
 
   const handleDiscardChanges = useCallback(() => {
@@ -407,20 +416,19 @@ export function useTableEditing({
       }
 
       const currentRows = resolveCurrentRows()
-      const updatedRows = currentRows.map(row =>
-        row.__rowId === rowId
-          ? { ...row, ...changedValues }
-          : row
-      )
-
-      updateResultRows(resultId, updatedRows, originalRows)
+      const target = currentRows.find((row) => row.__rowId === rowId)
+      if (target) {
+        const committedRow: QueryResultRow = { ...target, ...changedValues }
+        delete committedRow.__isNewRow
+        patchResultRows(resultId, { [rowId]: committedRow }, { [rowId]: { ...committedRow } })
+      }
 
       return true
     } catch (error) {
       console.error('JSON viewer save failed:', error)
       return false
     }
-  }, [connectionId, metadata, originalRows, columnsLookup, columnNames, query, resolveCurrentRows, updateResultRows, resultId])
+  }, [connectionId, metadata, originalRows, columnsLookup, columnNames, query, resolveCurrentRows, patchResultRows, resultId])
 
   return {
     dirtyRowIds,

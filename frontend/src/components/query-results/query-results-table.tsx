@@ -1,5 +1,5 @@
 import { CheckCircle2, Inbox } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { toast } from '../../hooks/use-toast'
 import { useQueryHistoryStore } from '../../store/query-history-store'
@@ -18,7 +18,7 @@ import {
 } from './hooks'
 import type { QueryResultsTableProps } from './types'
 
-export function QueryResultsTable({
+function QueryResultsTableComponent({
   resultId,
   columns = [],
   rows,
@@ -44,6 +44,7 @@ export function QueryResultsTable({
   )
 
   const updateResultRows = useQueryHistoryStore((state) => state.updateResultRows)
+  const patchResultRows = useQueryHistoryStore((state) => state.patchResultRows)
   const tableContextRef = useRef<EditableTableContext | null>(null)
 
 
@@ -65,6 +66,7 @@ export function QueryResultsTable({
     query,
     tableContextRef,
     updateResultRows,
+    patchResultRows,
   })
 
   // JSON viewer hook
@@ -278,7 +280,11 @@ export function QueryResultsTable({
             enableMultiSelect={selection.canDeleteRows}
             enableGlobalFilter={false}
             enableExport={true}
-            loading={editing.saving || pagination.isLoadingPage}
+            // Never blank the grid for in-app transitions. Cell-edit saves patch
+            // rows in place (toolbar Save button shows progress) and page changes
+            // keep the previous page visible until the next one arrives, with a
+            // spinner in the pagination bar — no blank-then-repopulate flash.
+            loading={false}
             className="flex-1 min-h-0"
             height="100%"
             onExport={tableExport.handleExport}
@@ -304,6 +310,7 @@ export function QueryResultsTable({
                 onPageChange={pagination.handlePageChange}
                 onPageSizeChange={pagination.handlePageSizeChange}
                 disabled={pagination.isLoadingPage || editing.saving}
+                isLoading={pagination.isLoadingPage}
                 compact
               />
             </div>
@@ -354,3 +361,7 @@ export function QueryResultsTable({
     </div>
   )
 }
+
+// Memoized so unrelated parent re-renders (sibling panels, tab switches that
+// don't touch this result) don't cascade into a full table re-render.
+export const QueryResultsTable = memo(QueryResultsTableComponent)

@@ -85,6 +85,14 @@ func DefaultConfig() *Config {
 		Temperature:  0.0,
 	}
 
+	// User-defined OpenAI-compatible endpoint; empty until configured in the UI.
+	config.Custom = CustomConfig{
+		Name:    "",
+		APIKey:  "",
+		BaseURL: "",
+		Models:  []string{},
+	}
+
 	return config
 }
 

@@ -30,6 +30,7 @@ const (
 	ProviderHuggingFace = ai.ProviderHuggingFace
 	ProviderClaudeCode  = ai.ProviderClaudeCode
 	ProviderCodex       = ai.ProviderCodex
+	ProviderCustom      = ai.ProviderCustom
 )
 
 // DefaultRuntimeConfig provides the baseline AI configuration without environment overrides.

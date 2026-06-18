@@ -7,6 +7,7 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import { useShallow } from 'zustand/react/shallow'
 
+import { toast } from '@/hooks/use-toast'
 import {
   CHUNK_CONFIG,
   deleteTabResults,
@@ -28,6 +29,14 @@ interface QueryHistoryState {
   clearResults: (tabId: string) => void
   clearAllResults: () => void
   updateResultRows: (resultId: string, rows: QueryResultRow[], newOriginalRows?: Record<string, QueryResultRow>) => void
+  /**
+   * Patch only the rows whose __rowId appears in `patches`, replacing each with
+   * the supplied row object and leaving every other row's object reference
+   * untouched. This keeps the identity of unchanged rows stable so the grid
+   * only refreshes the cells that actually changed (no full-table re-render /
+   * flash on cell-edit save).
+   */
+  patchResultRows: (resultId: string, patches: Record<string, QueryResultRow>, newOriginalRows?: Record<string, QueryResultRow>) => void
   updateResultEditable: (resultId: string, metadata: QueryEditableMetadata | null) => void
   updateResultProcessing: (resultId: string, isProcessing: boolean, progress?: number) => void
   getResultsForTab: (tabId: string) => QueryResult[]
@@ -70,9 +79,17 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
             connectionId: newResult.connectionId,
           }
 
-          // Store in IndexedDB asynchronously
+          // Store in IndexedDB asynchronously. If it fails (quota exceeded,
+          // private-browsing, etc.) the rows kept beyond what's in memory can't
+          // be recovered on reload — warn the user instead of failing silently.
           storeQueryResult(storedResult).catch((error) => {
             console.error('Failed to store large result in IndexedDB:', error)
+            toast({
+              title: 'Large result not saved',
+              description:
+                'This result was too large to persist locally and may be lost when you reload. Narrow the query or export it to keep the data.',
+              variant: 'destructive',
+            })
           })
 
           // If chunking is enabled, keep only first chunk in memory
@@ -168,6 +185,36 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
         }))
       },
 
+      patchResultRows: (resultId, patches, newOriginalRows) => {
+        set((state) => ({
+          results: state.results.map((result) => {
+            if (result.id !== resultId) {
+              return result
+            }
+
+            // Swap in only the patched rows; every other row keeps its existing
+            // object reference so the grid leaves those rows untouched.
+            let changed = false
+            const nextRows = result.rows.map((row) => {
+              const patch = row.__rowId ? patches[row.__rowId] : undefined
+              if (!patch) {
+                return row
+              }
+              changed = true
+              return patch
+            })
+
+            return {
+              ...result,
+              rows: changed ? nextRows : result.rows,
+              originalRows: newOriginalRows
+                ? { ...result.originalRows, ...newOriginalRows }
+                : result.originalRows,
+            }
+          }),
+        }))
+      },
+
       updateResultEditable: (resultId, metadata) => {
         set((state) => ({
           results: state.results.map((result) => {
@@ -198,17 +245,23 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
 
               const recomputedRows: QueryResultRow[] = []
               const recomputedOriginal: Record<string, QueryResultRow> = {}
+              // Track whether any row's identity actually changes. This action
+              // fires when editable metadata arrives (and can re-fire while it's
+              // polled), often right after the rows first render — rebuilding
+              // every row object would re-render the whole grid (a visible
+              // flash). We only mint new row objects for rows whose __rowId truly
+              // changes and otherwise keep the existing reference.
+              let rowsChanged = false
 
               result.rows.forEach((row, index) => {
                 const existingOriginal = result.originalRows[row.__rowId] ?? row
-                const nextRow: QueryResultRow = { ...row }
 
                 let rowId = ''
                 if (pkColumns.length > 0) {
                   const parts: string[] = []
                   let allPresent = true
                   pkColumns.forEach((pkColumn) => {
-                    const value = nextRow[pkColumn]
+                    const value = row[pkColumn]
                     if (value === undefined) {
                       allPresent = false
                     } else {
@@ -222,15 +275,24 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
                 }
 
                 if (!rowId) {
-                  rowId = `${generateRowId()}-${index}`
+                  // Reuse an already-assigned id so repeated metadata refreshes
+                  // don't regenerate a random id (which would break row identity
+                  // and flash the grid); only mint one when truly missing.
+                  rowId = row.__rowId || `${generateRowId()}-${index}`
                 }
 
-                nextRow.__rowId = rowId
-                recomputedRows.push(nextRow)
+                if (rowId === row.__rowId) {
+                  recomputedRows.push(row)
+                } else {
+                  recomputedRows.push({ ...row, __rowId: rowId })
+                  rowsChanged = true
+                }
                 recomputedOriginal[rowId] = { ...(existingOriginal as QueryResultRow), __rowId: rowId }
               })
 
-              updatedRows = recomputedRows
+              // Keep the existing rows array reference when no id changed so the
+              // grid skips reconciliation entirely.
+              updatedRows = rowsChanged ? recomputedRows : result.rows
               updatedOriginalRows = recomputedOriginal
             }
 
@@ -297,6 +359,7 @@ export const useQueryHistoryActions = () =>
       clearResults: state.clearResults,
       clearAllResults: state.clearAllResults,
       updateResultRows: state.updateResultRows,
+      patchResultRows: state.patchResultRows,
       updateResultEditable: state.updateResultEditable,
       updateResultProcessing: state.updateResultProcessing,
     }))

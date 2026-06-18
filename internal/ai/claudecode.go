@@ -38,6 +38,16 @@ func NewClaudeCodeProvider(config *ClaudeCodeConfig) (*ClaudeCodeProvider, error
 		config.Temperature = 0.7
 	}
 
+	// Resolve the Claude CLI binary. When no explicit path is configured, look it
+	// up on PATH so the CLI's own auth (~/.claude/.credentials.json or an active
+	// login session) keeps working without the user pasting a key. We persist the
+	// resolved path so the health check and subsequent launches reuse it.
+	if config.ClaudePath == "" {
+		if resolved, lookErr := exec.LookPath("claude"); lookErr == nil {
+			config.ClaudePath = resolved
+		}
+	}
+
 	var client *claudecode.Client
 	var err error
 
@@ -46,7 +56,7 @@ func NewClaudeCodeProvider(config *ClaudeCodeConfig) (*ClaudeCodeProvider, error
 	} else {
 		client, err = claudecode.NewClient()
 		if err != nil {
-			return nil, fmt.Errorf("failed to create Claude Code client: %w", err)
+			return nil, fmt.Errorf("claude CLI not found on PATH — install it (npm i -g @anthropic-ai/claude-code) and run `claude login`, or set its path: %w", err)
 		}
 	}
 
@@ -228,8 +238,13 @@ func (p *ClaudeCodeProvider) Chat(_ context.Context, prompt string, options ...G
 func (p *ClaudeCodeProvider) GetHealth(_ context.Context) (*HealthStatus, error) {
 	startTime := time.Now()
 
-	// First check if the claude binary exists
-	_, lookupErr := exec.LookPath(p.config.ClaudePath)
+	// First check if the claude binary exists. Fall back to a bare "claude"
+	// PATH lookup when no explicit path was configured.
+	lookupTarget := p.config.ClaudePath
+	if lookupTarget == "" {
+		lookupTarget = "claude"
+	}
+	_, lookupErr := exec.LookPath(lookupTarget)
 	if lookupErr != nil {
 		return &HealthStatus{
 			Provider:     ProviderClaudeCode,

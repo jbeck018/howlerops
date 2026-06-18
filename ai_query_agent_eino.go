@@ -83,6 +83,17 @@ func (s *WailsAIService) buildAgentModelConfig(provider, model string) agent.Mod
 		if model == "" {
 			cfg.Model = s.aiConfig.Codex.Model
 		}
+		// Codex authenticates through the local Codex CLI: when no key is set
+		// in-app, pull it from the environment, ~/.codex/auth.json, or a
+		// CODEX_AUTH_FILE-pointed file (same as the `codex` CLI uses).
+		if strings.TrimSpace(cfg.APIKey) == "" {
+			if key, _ := detectCodexCredentials(); key != "" {
+				cfg.APIKey = key
+			}
+		}
+		if strings.TrimSpace(cfg.BaseURL) == "" {
+			cfg.BaseURL = "https://api.openai.com/v1"
+		}
 	case "anthropic":
 		cfg.APIKey = s.aiConfig.Anthropic.APIKey
 		cfg.BaseURL = s.aiConfig.Anthropic.BaseURL
@@ -108,6 +119,14 @@ func (s *WailsAIService) buildAgentModelConfig(provider, model string) agent.Mod
 		cfg.APIKey = "huggingface"
 		if model == "" {
 			cfg.Model = s.aiConfig.HuggingFace.RecommendedModel
+		}
+	case "custom":
+		// User-defined OpenAI-compatible endpoint — served through the OpenAI
+		// client (BuildModel's default case) with the configured base URL/key.
+		cfg.APIKey = s.aiConfig.Custom.APIKey
+		cfg.BaseURL = s.aiConfig.Custom.BaseURL
+		if model == "" && len(s.aiConfig.Custom.Models) > 0 {
+			cfg.Model = s.aiConfig.Custom.Models[0]
 		}
 	}
 	return cfg
