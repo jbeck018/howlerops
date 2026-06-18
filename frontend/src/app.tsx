@@ -10,7 +10,6 @@ import { MainLayout } from './components/layout/main-layout'
 import { NavigationProvider } from './components/navigation-provider'
 import { ThemeProvider } from './components/theme-provider'
 import { Toaster } from './components/ui/toaster'
-import { UpdateNotification } from './components/update-notification'
 import { queryClient } from './lib/api'
 import { shouldEnforceHostedAuth } from './lib/environment'
 import { useMigrateToSQLite } from './lib/storage/migrate-to-sqlite'
@@ -135,7 +134,6 @@ function App() {
           </Router>
           <ReactQueryDevtools initialIsOpen={false} />
           <Toaster />
-          <UpdateNotification />
         </ThemeProvider>
       </QueryClientProvider>
     </ErrorBoundary>
