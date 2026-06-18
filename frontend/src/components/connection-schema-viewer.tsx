@@ -85,6 +85,11 @@ function buildSchemaNodes(
 export function ConnectionSchemaViewer({ connectionId, onClose }: ConnectionSchemaViewerProps) {
   const { connections } = useConnectionStore()
   const connection = connections.find(conn => conn.id === connectionId)
+  // Backend DB calls are keyed by the live session id (set when the connection
+  // is activated), not the persisted connection id. Resolve it here so the
+  // schema lookups match the manager — passing connectionId yields
+  // "connection not found". Node ids stay keyed by connectionId for stable keys.
+  const sessionId = connection?.sessionId ?? null
 
   const [databases, setDatabases] = useState<string[]>([])
   const [loadingDatabases, setLoadingDatabases] = useState(false)
@@ -99,12 +104,12 @@ export function ConnectionSchemaViewer({ connectionId, onClose }: ConnectionSche
 
   // Lazily load one database's schema (cached after first expand).
   const loadDatabaseSchema = useCallback(async (dbName: string) => {
-    if (!connectionId) return
+    if (!connectionId || !sessionId) return
     setDbLoading(prev => ({ ...prev, [dbName]: true }))
     setDbError(prev => ({ ...prev, [dbName]: '' }))
     try {
       const { GetDatabaseSchema } = await import('../../bindings/github.com/jbeck018/howlerops/app')
-      const res = await GetDatabaseSchema(connectionId, dbName)
+      const res = await GetDatabaseSchema(sessionId, dbName)
       const tables = (res?.tables ?? []) as Array<{ name?: string; schema?: string }>
       setDbSchemas(prev => ({ ...prev, [dbName]: buildSchemaNodes(connectionId, dbName, tables) }))
     } catch (err) {
@@ -112,10 +117,10 @@ export function ConnectionSchemaViewer({ connectionId, onClose }: ConnectionSche
     } finally {
       setDbLoading(prev => ({ ...prev, [dbName]: false }))
     }
-  }, [connectionId])
+  }, [connectionId, sessionId])
 
   const loadDatabases = useCallback(async () => {
-    if (!connectionId || !connection?.sessionId) {
+    if (!connectionId || !sessionId) {
       setDatabases([])
       return
     }
@@ -125,7 +130,7 @@ export function ConnectionSchemaViewer({ connectionId, onClose }: ConnectionSche
     setDbError({})
     try {
       const { ListConnectionDatabases } = await import('../../bindings/github.com/jbeck018/howlerops/app')
-      const res = await ListConnectionDatabases(connectionId)
+      const res = await ListConnectionDatabases(sessionId)
       if (res && res.success === false) {
         throw new Error(res.message || 'Failed to list databases')
       }
@@ -147,7 +152,7 @@ export function ConnectionSchemaViewer({ connectionId, onClose }: ConnectionSche
     } finally {
       setLoadingDatabases(false)
     }
-  }, [connectionId, connection?.sessionId, connection?.database, loadDatabaseSchema])
+  }, [connectionId, sessionId, connection?.database, loadDatabaseSchema])
 
   const toggleDatabase = useCallback((dbName: string) => {
     setOpenDatabases(prev => {
