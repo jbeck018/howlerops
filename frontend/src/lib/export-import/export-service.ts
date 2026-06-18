@@ -9,6 +9,7 @@
 
 import { useConnectionStore, type DatabaseConnection } from '@/store/connection-store'
 import { getSecureStorage } from '@/lib/secure-storage'
+import { isWailsEnvironment } from '@/lib/wails-runtime'
 
 import {
   ConnectionExportFile,
@@ -21,11 +22,13 @@ import {
 const APP_VERSION = '1.0.0'
 
 /**
- * Export connections to a JSON file and trigger download
+ * Export connections to a JSON file. On the desktop build the file is written
+ * natively to the Downloads folder (the path is returned); on the web build a
+ * browser download is triggered. Returns the saved file path when known.
  */
-export async function exportConnections(options: ExportOptions = { includePasswords: false }): Promise<void> {
+export async function exportConnections(options: ExportOptions = { includePasswords: false }): Promise<string | void> {
   const exportFile = await buildExportFile(options)
-  downloadExportFile(exportFile)
+  return downloadExportFile(exportFile)
 }
 
 /**
@@ -145,23 +148,30 @@ function sanitizeParameters(params?: Record<string, string>): Record<string, str
 }
 
 /**
- * Trigger file download in the browser
+ * Persist the export file. In the Wails desktop webview the browser's
+ * `<a download>` trick is a no-op (the embedded WebKit view ignores the
+ * download attribute), so we write the file natively via the FileService —
+ * the same mechanism the query-results export uses. On the web we fall back to
+ * a real browser download. Returns the saved path when written natively.
  */
-function downloadExportFile(exportFile: ConnectionExportFile): void {
+async function downloadExportFile(exportFile: ConnectionExportFile): Promise<string | void> {
   const json = JSON.stringify(exportFile, null, 2)
-  const blob = new Blob([json], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-
   const date = new Date().toISOString().split('T')[0]
   const filename = `howlerops-connections-${date}.json`
 
+  if (isWailsEnvironment()) {
+    const { SaveToDownloads } = await import('../../../bindings/github.com/jbeck018/howlerops/app')
+    return await SaveToDownloads(filename, json)
+  }
+
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = filename
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
-
   URL.revokeObjectURL(url)
 }
 

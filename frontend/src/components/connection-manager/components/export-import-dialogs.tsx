@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { toast } from '@/hooks/use-toast'
 import {
   type ConflictResolution,
   type ConnectionExportFile,
@@ -70,7 +71,13 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     setError(null)
 
     try {
-      await exportConnections({ includePasswords })
+      const savedPath = await exportConnections({ includePasswords })
+      toast({
+        title: 'Connections exported',
+        description: savedPath
+          ? `Saved ${connections.length} connection${connections.length === 1 ? '' : 's'} to: ${savedPath}`
+          : `Exported ${connections.length} connection${connections.length === 1 ? '' : 's'}.`,
+      })
       onOpenChange(false)
       // Reset state
       setIncludePasswords(false)
