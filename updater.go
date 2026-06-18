@@ -182,13 +182,38 @@ func (u *UpdateChecker) DownloadAndInstall() error {
 	return nil
 }
 
-// RestartApp relaunches the (now updated) app bundle and quits the current
-// instance so the new version takes over.
+// RestartApp relaunches the (now updated) app and quits the current instance so
+// the new version takes over. To avoid ending up with two windows open at once,
+// it does NOT force a second instance: a small detached watcher waits for this
+// process to fully exit and only then reopens the app, so the old instance is
+// always gone before the new one starts.
 func (u *UpdateChecker) RestartApp() error {
-	if appPath := currentAppBundlePath(); appPath != "" {
-		// -n forces a fresh instance even though this one is still briefly alive.
-		_ = exec.Command("open", "-n", appPath).Start()
+	// Windows in-app update isn't supported yet (see DownloadAndInstall), and the
+	// shell-based watcher below is POSIX-only — just quit there.
+	if runtime.GOOS != "windows" {
+		var launch string
+		if appPath := currentAppBundlePath(); appPath != "" {
+			// macOS: reopen the updated .app bundle. No `open -n`, so once the old
+			// instance has exited this opens exactly one fresh instance.
+			launch = fmt.Sprintf("open %q", appPath)
+		} else if exe, err := os.Executable(); err == nil {
+			// Linux/dev: relaunch the executable directly.
+			launch = fmt.Sprintf("%q", exe)
+		}
+
+		if launch != "" {
+			// Wait for the current PID to disappear (bounded to ~30s in case Quit
+			// hangs), then start the updated app. Started detached so it survives
+			// our own Quit() — the orphaned shell is reparented and keeps running.
+			pid := os.Getpid()
+			script := fmt.Sprintf(
+				"i=0; while kill -0 %d 2>/dev/null && [ $i -lt 150 ]; do sleep 0.2; i=$((i+1)); done; %s",
+				pid, launch,
+			)
+			_ = exec.Command("sh", "-c", script).Start()
+		}
 	}
+
 	if u.app != nil {
 		u.app.Quit()
 	}
