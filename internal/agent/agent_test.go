@@ -63,6 +63,20 @@ func TestEngineRunReturnsAnswer(t *testing.T) {
 	}
 }
 
+func TestEngineRunWithFuncModel(t *testing.T) {
+	e := New(fakeTools{})
+	m := newFuncModel(func(_ context.Context, _, _ string) (string, error) {
+		return "cli says hi", nil
+	})
+	out, err := e.Run(context.Background(), m, Input{Message: "hello"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.Answer != "cli says hi" {
+		t.Fatalf("answer = %q, want %q", out.Answer, "cli says hi")
+	}
+}
+
 func TestRunSQLToolRecordsState(t *testing.T) {
 	e := New(fakeTools{})
 	rs := &runState{}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jbeck018/howlerops/internal/agent"
+	"github.com/jbeck018/howlerops/pkg/ai"
 )
 
 // wailsAgentTools adapts the existing WailsAIService database, schema, and
@@ -60,7 +61,8 @@ func (t *wailsAgentTools) SearchMemory(_ context.Context, query string, limit in
 
 // buildAgentModelConfig assembles the credentials for the requested provider
 // from the service's configured AI settings, preserving existing auth (API
-// keys / base URLs for Codex and other OpenAI-compatible local CLIs).
+// keys / base URLs for Codex and other OpenAI-compatible local CLIs, and the
+// Claude CLI subprocess for claudecode).
 func (s *WailsAIService) buildAgentModelConfig(provider, model string) agent.ModelConfig {
 	cfg := agent.ModelConfig{Provider: provider, Model: model}
 	if s.aiConfig == nil {
@@ -81,11 +83,19 @@ func (s *WailsAIService) buildAgentModelConfig(provider, model string) agent.Mod
 		if model == "" {
 			cfg.Model = s.aiConfig.Codex.Model
 		}
-	case "anthropic", "claudecode":
+	case "anthropic":
 		cfg.APIKey = s.aiConfig.Anthropic.APIKey
 		cfg.BaseURL = s.aiConfig.Anthropic.BaseURL
 		if model == "" && len(s.aiConfig.Anthropic.Models) > 0 {
 			cfg.Model = s.aiConfig.Anthropic.Models[0]
+		}
+	case "claudecode":
+		// The Claude CLI authenticates as a local subprocess and has no native
+		// tool calling. Route it through a HostChatFunc so its auth keeps working
+		// as a graceful single-shot path inside the ReAct loop.
+		cfg.ChatFunc = s.claudeCodeChatFunc()
+		if model == "" {
+			cfg.Model = s.aiConfig.ClaudeCode.Model
 		}
 	case "ollama":
 		cfg.BaseURL = openAICompatBaseURL(s.aiConfig.Ollama.Endpoint)
@@ -101,6 +111,28 @@ func (s *WailsAIService) buildAgentModelConfig(provider, model string) agent.Mod
 		}
 	}
 	return cfg
+}
+
+// claudeCodeChatFunc returns a HostChatFunc backed by the existing Claude CLI
+// provider, so the claudecode subprocess auth continues to work end to end.
+func (s *WailsAIService) claudeCodeChatFunc() agent.HostChatFunc {
+	return func(ctx context.Context, system, prompt string) (string, error) {
+		if s.aiService == nil {
+			return "", fmt.Errorf("AI service not configured")
+		}
+		resp, err := s.aiService.Chat(ctx, &ai.ChatRequest{
+			System:   system,
+			Prompt:   prompt,
+			Provider: "claudecode",
+		})
+		if err != nil {
+			return "", err
+		}
+		if resp == nil {
+			return "", fmt.Errorf("claude CLI returned no response")
+		}
+		return resp.Content, nil
+	}
 }
 
 // openAICompatBaseURL normalises a local endpoint to its OpenAI-compatible path.
