@@ -105,14 +105,39 @@ const SQL_KEYWORDS = [
 ]
 
 /**
- * Find connection by name or ID
+ * Find connection by name or ID (case-insensitive on name/alias, so @prod
+ * resolves a connection named "Prod").
  */
 function findConnection(connections: Connection[], identifier: string): Connection | undefined {
-  return connections.find(c =>
+  const exact = connections.find(c =>
     c.name === identifier ||
     c.id === identifier ||
     c.alias === identifier
   )
+  if (exact) return exact
+
+  const lower = identifier.toLowerCase()
+  return connections.find(c =>
+    c.name?.toLowerCase() === lower ||
+    c.alias?.toLowerCase() === lower
+  )
+}
+
+/**
+ * Look up a connection's schema list by id/name, case-insensitively.
+ */
+function getConnectionSchemas(
+  schemas: Map<string, SchemaNode[]>,
+  identifier: string
+): SchemaNode[] | undefined {
+  const exact = schemas.get(identifier)
+  if (exact) return exact
+
+  const lower = identifier.toLowerCase()
+  for (const [key, value] of schemas) {
+    if (key.toLowerCase() === lower) return value
+  }
+  return undefined
 }
 
 /**
@@ -323,13 +348,6 @@ export function sqlAutocompletion(columnLoader?: ColumnLoader): Extension {
         // Detect JOIN ON context for smart FK suggestions
         const joinOnContext = detectJoinOnContext(textBeforeCursor)
 
-        console.log('[CodeMirror SQL] Query context:', {
-          tablesCount: queryContext.tables.length,
-          currentClause: queryContext.currentClause,
-          aliases: Array.from(queryContext.aliasMap.keys()),
-          joinOnContext: joinOnContext ? `${joinOnContext.leftAlias}.${joinOnContext.leftColumn} = ${joinOnContext.rightAlias}` : 'none'
-        })
-
         // Check for alias prefix (e.g., "a." or "u.")
         const aliasPattern = /(\w+)\.(\w*)$/
         const aliasMatch = textBeforeCursor.match(aliasPattern)
@@ -337,18 +355,9 @@ export function sqlAutocompletion(columnLoader?: ColumnLoader): Extension {
         if (aliasMatch && columnLoader) {
           const [, prefix, partialColumn] = aliasMatch
 
-          console.log('[CodeMirror SQL] Checking alias prefix:', { prefix, partialColumn })
-
           // Check if prefix is an alias
           if (isAlias(prefix, queryContext)) {
             const tableRef = resolveAlias(prefix, queryContext)
-
-            console.log('[CodeMirror SQL] Resolved alias:', {
-              prefix,
-              tableName: tableRef?.tableName,
-              schema: tableRef?.schema,
-              connectionId: tableRef?.connectionId
-            })
 
             if (tableRef) {
               // For multi-DB, find the connection
@@ -373,17 +382,10 @@ export function sqlAutocompletion(columnLoader?: ColumnLoader): Extension {
 
                 if (columnCache.has(cacheKey)) {
                   columns = columnCache.get(cacheKey)!
-                  console.log('[CodeMirror SQL] Column cache hit:', cacheKey)
                 } else {
                   try {
-                    console.log('[CodeMirror SQL] Loading columns for alias:', {
-                      sessionId,
-                      schema: schemaName,
-                      table: tableRef.tableName
-                    })
                     columns = await columnLoader(sessionId, schemaName, tableRef.tableName)
                     columnCache.set(cacheKey, columns)
-                    console.log('[CodeMirror SQL] Loaded columns:', columns.length)
                   } catch (error) {
                     console.error('[CodeMirror SQL] Failed to load columns:', error)
                     columns = []
@@ -420,12 +422,6 @@ export function sqlAutocompletion(columnLoader?: ColumnLoader): Extension {
         if (['WHERE', 'SELECT', 'HAVING', 'ON', 'ORDER_BY', 'GROUP_BY'].includes(queryContext.currentClause)) {
           const tablesInScope = getTablesInScope(queryContext)
 
-          console.log('[CodeMirror SQL] Context-aware check:', {
-            clause: queryContext.currentClause,
-            tablesInScope: tablesInScope.length,
-            hasMatch: !!aliasMatch
-          })
-
           // Only show context-aware if we're not already in an alias. pattern
           if (tablesInScope.length > 0 && !aliasMatch && columnLoader) {
             // Check if we're typing a column name (no table prefix)
@@ -435,9 +431,9 @@ export function sqlAutocompletion(columnLoader?: ColumnLoader): Extension {
             if (plainWordMatch) {
               const partialWord = plainWordMatch[1]
 
-              // Only suggest if user has typed at least 2 characters or is in WHERE clause
-              if (partialWord.length >= 2 || queryContext.currentClause === 'WHERE') {
-                console.log('[CodeMirror SQL] Adding context-aware suggestions for:', partialWord)
+              // Suggest columns as soon as one character is typed (in any of the
+              // supported clauses).
+              if (partialWord.length >= 1) {
 
                 // Load columns from all tables in scope
                 for (const tableRef of tablesInScope) {
@@ -511,19 +507,23 @@ export function sqlAutocompletion(columnLoader?: ColumnLoader): Extension {
 
         // Multi-DB Mode Patterns
         if (mode === 'multi') {
-          // Pattern 1: User typed '@' - show connections
+          // Pattern 1: User typed '@' - show connections. Disconnected ones are
+          // still offered (so you can write the query) but ranked below the
+          // connected ones and flagged as disconnected.
           if (textBeforeCursor.endsWith('@')) {
-            connections
-              .filter(conn => conn.isConnected)
-              .forEach((conn, idx) => {
-                options.push({
-                  label: `@${conn.name}`,
-                  type: 'namespace',
-                  detail: `${conn.type} - ${conn.database}`,
-                  info: `Connection: ${conn.name}`,
-                  boost: 100 - idx
-                })
+            connections.forEach((conn, idx) => {
+              const connected = conn.isConnected
+              options.push({
+                label: `@${conn.name}`,
+                type: 'namespace',
+                detail: connected ? `${conn.type} · ${conn.database}` : `${conn.type} · disconnected`,
+                info: connected
+                  ? `Connection: ${conn.name}`
+                  : `Connection: ${conn.name} — not connected (will connect when used)`,
+                // Connected connections sort first; disconnected ones below.
+                boost: (connected ? 100 : 30) - idx,
               })
+            })
 
             return {
               from: context.pos - 1,
@@ -574,6 +574,82 @@ export function sqlAutocompletion(columnLoader?: ColumnLoader): Extension {
             }
           }
 
+          // Pattern 2b: @connection.X. - if X is a table, show its columns
+          // (single-schema shorthand for @conn.table.col); if X is a schema,
+          // show that schema's tables. Pattern 2 above handles the fully
+          // qualified @conn.schema.table. form.
+          const twoPartPattern = /@([\w-]+)\.([\w-]+)\.(\w*)$/
+          const twoPartMatch = textBeforeCursor.match(twoPartPattern)
+
+          if (twoPartMatch) {
+            const [, connId, middle, partial] = twoPartMatch
+            const connection = findConnection(connections, connId)
+            const connSchemas = getConnectionSchemas(schemas, connId)
+
+            if (connection && connSchemas) {
+              // (a) middle is a table -> offer its columns (prefer public schema)
+              let tableSchema: string | undefined
+              for (const schema of connSchemas) {
+                if (
+                  schema.type === 'schema' &&
+                  schema.children?.some(
+                    t => t.type === 'table' && t.name.toLowerCase() === middle.toLowerCase()
+                  )
+                ) {
+                  tableSchema = schema.name
+                  if (schema.name === 'public') break
+                }
+              }
+
+              if (tableSchema && connection.sessionId && columnLoader) {
+                const cacheKey = `${connection.sessionId}-${tableSchema}-${middle}`
+                let columns: Column[]
+                if (columnCache.has(cacheKey)) {
+                  columns = columnCache.get(cacheKey)!
+                } else {
+                  try {
+                    columns = await columnLoader(connection.sessionId, tableSchema, middle)
+                    columnCache.set(cacheKey, columns)
+                  } catch {
+                    columns = []
+                  }
+                }
+                columns
+                  .filter(col => !partial || col.name.toLowerCase().startsWith(partial.toLowerCase()))
+                  .forEach(col => {
+                    options.push({
+                      label: col.name,
+                      type: 'property',
+                      detail: col.dataType,
+                      info: col.nullable ? 'Nullable' : 'Not null',
+                      boost: 90,
+                    })
+                  })
+                return { from: context.pos - partial.length, options }
+              }
+
+              // (b) middle is a schema -> offer the schema's tables
+              const schemaNode = connSchemas.find(
+                s => s.type === 'schema' && s.name.toLowerCase() === middle.toLowerCase()
+              )
+              if (schemaNode?.children) {
+                schemaNode.children
+                  .filter(t => t.type === 'table')
+                  .filter(t => !partial || t.name.toLowerCase().startsWith(partial.toLowerCase()))
+                  .forEach(table => {
+                    options.push({
+                      label: table.name,
+                      type: 'class',
+                      detail: `@${connection.name}.${schemaNode.name}.${table.name}`,
+                      info: `Table from ${connection.name}`,
+                      boost: 80,
+                    })
+                  })
+                return { from: context.pos - partial.length, options }
+              }
+            }
+          }
+
           // Pattern 3: @connection. - show schemas/tables
           const tablePattern = /@([\w-]+)\.(\w*)$/
           const tableMatch = textBeforeCursor.match(tablePattern)
@@ -582,9 +658,9 @@ export function sqlAutocompletion(columnLoader?: ColumnLoader): Extension {
             const [, connId, partialTable] = tableMatch
             const connection = findConnection(connections, connId)
 
-            // Use connId (matched identifier) instead of connection.id for schema lookup
-            if (connection && schemas.has(connId)) {
-              const connSchemas = schemas.get(connId)!
+            // Case-insensitive schema lookup by connection id/name.
+            const connSchemas = getConnectionSchemas(schemas, connId)
+            if (connection && connSchemas) {
 
               connSchemas.forEach(schema => {
                 if (schema.type === 'schema' && schema.children) {

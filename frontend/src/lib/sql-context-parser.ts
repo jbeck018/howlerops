@@ -166,6 +166,14 @@ function parseTableReferences(query: string): TableReference[] {
     const prevChar = match.index > 0 ? cleaned[match.index - 1] : ''
     if (prevChar === '.' || prevChar === '@') continue
 
+    // Skip when the captured name is itself a schema qualifier, i.e. it is
+    // immediately followed by a dot (`FROM public.accounts` matches "public"
+    // here). That `schema.table` was already captured by Pattern 2; counting
+    // the schema as a separate table inflates the table count and makes
+    // single-table completions wrongly table-qualify their columns.
+    const nextChar = cleaned[match.index + match[0].length]
+    if (nextChar === '.') continue
+
     // Skip if we already captured this as part of schema.table
     const alreadyCaptured = tables.some(t =>
       t.tableName === tableName &&
@@ -182,7 +190,16 @@ function parseTableReferences(query: string): TableReference[] {
     })
   }
 
-  return tables
+  // Deduplicate by schema + table + alias so a table referenced by more than one
+  // pattern (or repeated in the query) is only counted once. Counting it twice
+  // would flip single-table completions into table-qualified ones.
+  const seen = new Set<string>()
+  return tables.filter((t) => {
+    const key = `${t.connectionId ?? ''}|${t.schema ?? ''}|${t.tableName}|${t.alias ?? ''}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 /**

@@ -199,6 +199,15 @@ func (p *QueryParser) Validate(parsed *ParsedQuery) error {
 			len(parsed.RequiredConnections), p.config.MaxConcurrentConns)
 	}
 
+	// Reject data-modifying statements that span more than one connection. The
+	// executor runs a multi-connection query on a single backend, and there is
+	// no cross-database transaction — so a multi-connection write would silently
+	// target the wrong database and could not be rolled back. Read-only
+	// multi-connection queries are fine.
+	if len(parsed.RequiredConnections) > 1 && isWriteStatement(parsed.OriginalSQL) {
+		return fmt.Errorf("writes across multiple connections are not supported; use a single @connection for INSERT/UPDATE/DELETE statements")
+	}
+
 	// Validate operation type if restrictions are configured
 	if len(p.config.AllowedOperations) > 0 {
 		if err := p.validateOperation(parsed.OriginalSQL); err != nil {
@@ -207,6 +216,22 @@ func (p *QueryParser) Validate(parsed *ParsedQuery) error {
 	}
 
 	return nil
+}
+
+// isWriteStatement reports whether the SQL is a data- or schema-modifying
+// statement (based on its leading keyword).
+func isWriteStatement(query string) bool {
+	fields := strings.Fields(strings.ToUpper(strings.TrimSpace(query)))
+	if len(fields) == 0 {
+		return false
+	}
+	switch fields[0] {
+	case "INSERT", "UPDATE", "DELETE", "MERGE", "REPLACE", "UPSERT",
+		"TRUNCATE", "CREATE", "ALTER", "DROP", "GRANT", "REVOKE":
+		return true
+	default:
+		return false
+	}
 }
 
 // validateOperation checks if the query operation is allowed
