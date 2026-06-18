@@ -3,6 +3,7 @@ package multiquery
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -180,46 +181,25 @@ func (e *Executor) executeFederated(
 	return nil, fmt.Errorf("no connections specified")
 }
 
-// replaceConnectionRefs replaces @connection.table references with just table names
-// This is a simplified implementation - a full version would need proper SQL parsing
+// connRefPattern strips the @connection prefix from references, keeping the
+// remaining schema.table (or table). The leading alternatives match single- and
+// double-quoted string/identifier literals so that a literal '@' inside them
+// (e.g. an email like '%@example.com%' or a MySQL user variable in a string) is
+// left untouched — only an actual @connection. reference is rewritten.
+var connRefPattern = regexp.MustCompile(`'(?:[^']|'')*'|"(?:[^"]|"")*"|@[\w-]+\.`)
+
+// replaceConnectionRefs replaces @connection.table references with just the
+// schema.table (or table) portion, leaving string and quoted-identifier
+// literals intact.
 func (e *Executor) replaceConnectionRefs(sql string) string {
-	// Remove @connection_id. prefix, keeping schema.table or just table
-	// Pattern: @connection_id.schema.table -> schema.table
-	// Pattern: @connection_id.table -> table
-
-	// For now, just remove the @connection. prefix
-	// This is a simplified approach that works for basic queries
-	result := sql
-
-	// Use a simple approach: find and replace @word. patterns
-	for {
-		start := -1
-		for i := 0; i < len(result); i++ {
-			if result[i] == '@' {
-				start = i
-				break
-			}
+	return connRefPattern.ReplaceAllStringFunc(sql, func(match string) string {
+		// String / quoted-identifier literals are returned unchanged; only the
+		// @connection. prefix is removed.
+		if len(match) > 0 && match[0] == '@' {
+			return ""
 		}
-
-		if start == -1 {
-			break
-		}
-
-		// Find the end of the connection reference (first dot)
-		end := start + 1
-		for end < len(result) && result[end] != '.' {
-			end++
-		}
-
-		if end >= len(result) {
-			break
-		}
-
-		// Remove @connection part
-		result = result[:start] + result[end+1:]
-	}
-
-	return result
+		return match
+	})
 }
 
 // executeParallel executes query segments in parallel (future implementation)
