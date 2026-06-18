@@ -28,6 +28,14 @@ interface QueryHistoryState {
   clearResults: (tabId: string) => void
   clearAllResults: () => void
   updateResultRows: (resultId: string, rows: QueryResultRow[], newOriginalRows?: Record<string, QueryResultRow>) => void
+  /**
+   * Patch only the rows whose __rowId appears in `patches`, replacing each with
+   * the supplied row object and leaving every other row's object reference
+   * untouched. This keeps the identity of unchanged rows stable so the grid
+   * only refreshes the cells that actually changed (no full-table re-render /
+   * flash on cell-edit save).
+   */
+  patchResultRows: (resultId: string, patches: Record<string, QueryResultRow>, newOriginalRows?: Record<string, QueryResultRow>) => void
   updateResultEditable: (resultId: string, metadata: QueryEditableMetadata | null) => void
   updateResultProcessing: (resultId: string, isProcessing: boolean, progress?: number) => void
   getResultsForTab: (tabId: string) => QueryResult[]
@@ -168,6 +176,36 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
         }))
       },
 
+      patchResultRows: (resultId, patches, newOriginalRows) => {
+        set((state) => ({
+          results: state.results.map((result) => {
+            if (result.id !== resultId) {
+              return result
+            }
+
+            // Swap in only the patched rows; every other row keeps its existing
+            // object reference so the grid leaves those rows untouched.
+            let changed = false
+            const nextRows = result.rows.map((row) => {
+              const patch = row.__rowId ? patches[row.__rowId] : undefined
+              if (!patch) {
+                return row
+              }
+              changed = true
+              return patch
+            })
+
+            return {
+              ...result,
+              rows: changed ? nextRows : result.rows,
+              originalRows: newOriginalRows
+                ? { ...result.originalRows, ...newOriginalRows }
+                : result.originalRows,
+            }
+          }),
+        }))
+      },
+
       updateResultEditable: (resultId, metadata) => {
         set((state) => ({
           results: state.results.map((result) => {
@@ -297,6 +335,7 @@ export const useQueryHistoryActions = () =>
       clearResults: state.clearResults,
       clearAllResults: state.clearAllResults,
       updateResultRows: state.updateResultRows,
+      patchResultRows: state.patchResultRows,
       updateResultEditable: state.updateResultEditable,
       updateResultProcessing: state.updateResultProcessing,
     }))
