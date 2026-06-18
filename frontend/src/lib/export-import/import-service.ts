@@ -62,6 +62,24 @@ export async function readExportFile(file: File): Promise<ConnectionExportFile> 
 }
 
 /**
+ * Open a native file picker and parse the selected connection export file.
+ * Returns null if the user cancels. Used on the desktop build, where an
+ * `<input type="file">` is handled unreliably by the embedded webview — the
+ * same reason the env import uses a native dialog.
+ */
+export async function openAndReadExportFile(): Promise<ConnectionExportFile | null> {
+  const { OpenFileDialog, ReadFile } = await import(
+    '../../../bindings/github.com/jbeck018/howlerops/wailsfileservice'
+  )
+  const path = await OpenFileDialog()
+  if (!path) {
+    return null
+  }
+  const content = await ReadFile(path)
+  return parseExportFile(content)
+}
+
+/**
  * Get IDs of connections that conflict with existing ones
  */
 export function getConflictingIds(exportFile: ConnectionExportFile): string[] {
