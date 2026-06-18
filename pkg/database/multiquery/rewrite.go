@@ -1,7 +1,7 @@
 package multiquery
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"regexp"
@@ -10,9 +10,10 @@ import (
 
 // DuckAliasForSession derives a deterministic, valid DuckDB catalog alias for a
 // connection sessionId. It is stable across queries (so attachments can be
-// cached and reused) and collision-free across distinct sessions.
+// cached and reused) and collision-free across distinct sessions. The hash is
+// used only to produce a short, valid identifier — it is not security-sensitive.
 func DuckAliasForSession(sessionID string) string {
-	sum := sha1.Sum([]byte(sessionID))
+	sum := sha256.Sum256([]byte(sessionID))
 	return "db_" + hex.EncodeToString(sum[:])[:12]
 }
 
