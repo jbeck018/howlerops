@@ -84,12 +84,18 @@ export const DataProcessingIndicator = ({
           </div>
         </div>
 
-        {/* Slow processing warning */}
-        {startTime && elapsedSeconds >= 15 && (
+        {/* Slow processing warning, escalating if it appears to have stalled */}
+        {startTime && elapsedSeconds >= 30 ? (
+          <div className="mt-2 text-xs text-amber-500 text-center">
+            This is taking much longer than expected and may have stalled.
+            <br />
+            Try re-running the query or narrowing it down.
+          </div>
+        ) : startTime && elapsedSeconds >= 15 ? (
           <div className="mt-2 text-xs text-amber-500 animate-pulse">
             Taking longer than usual...
           </div>
-        )}
+        ) : null}
 
         <div className="mt-2 text-xs text-muted-foreground text-center">
           Large datasets are processed in batches to keep the UI responsive.

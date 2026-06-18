@@ -7,6 +7,7 @@ import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import { useShallow } from 'zustand/react/shallow'
 
+import { toast } from '@/hooks/use-toast'
 import {
   CHUNK_CONFIG,
   deleteTabResults,
@@ -78,9 +79,17 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
             connectionId: newResult.connectionId,
           }
 
-          // Store in IndexedDB asynchronously
+          // Store in IndexedDB asynchronously. If it fails (quota exceeded,
+          // private-browsing, etc.) the rows kept beyond what's in memory can't
+          // be recovered on reload — warn the user instead of failing silently.
           storeQueryResult(storedResult).catch((error) => {
             console.error('Failed to store large result in IndexedDB:', error)
+            toast({
+              title: 'Large result not saved',
+              description:
+                'This result was too large to persist locally and may be lost when you reload. Narrow the query or export it to keep the data.',
+              variant: 'destructive',
+            })
           })
 
           // If chunking is enabled, keep only first chunk in memory

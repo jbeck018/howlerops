@@ -280,10 +280,11 @@ function QueryResultsTableComponent({
             enableMultiSelect={selection.canDeleteRows}
             enableGlobalFilter={false}
             enableExport={true}
-            // Only blank the grid for actual page loads. Cell-edit saves patch
-            // rows in place and surface progress via the toolbar's Save button,
-            // so the grid stays rendered (no blank-then-repopulate flash).
-            loading={pagination.isLoadingPage}
+            // Never blank the grid for in-app transitions. Cell-edit saves patch
+            // rows in place (toolbar Save button shows progress) and page changes
+            // keep the previous page visible until the next one arrives, with a
+            // spinner in the pagination bar — no blank-then-repopulate flash.
+            loading={false}
             className="flex-1 min-h-0"
             height="100%"
             onExport={tableExport.handleExport}
@@ -309,6 +310,7 @@ function QueryResultsTableComponent({
                 onPageChange={pagination.handlePageChange}
                 onPageSizeChange={pagination.handlePageSizeChange}
                 disabled={pagination.isLoadingPage || editing.saving}
+                isLoading={pagination.isLoadingPage}
                 compact
               />
             </div>

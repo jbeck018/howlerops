@@ -60,6 +60,13 @@ export const useQueryEngineStore = create<QueryEngineState>()(
         const delay = Math.min(1000, 250 * Math.max(1, attempt + 1))
 
         const timer = window.setTimeout(async () => {
+          // The result may have been removed (tab closed, history cleared)
+          // during the delay — stop polling rather than fetching for and
+          // updating an orphaned result.
+          if (!useQueryHistoryStore.getState().results.some(result => result.id === resultId)) {
+            cleanupEditableMetadataJob(jobId)
+            return
+          }
           try {
             const response = await api.queries.getEditableMetadata(jobId)
 
@@ -330,7 +337,10 @@ export const useQueryEngineStore = create<QueryEngineState>()(
             }
 
             const fresh = historyStore.results.find((candidate) => candidate.id === resultId)
-            if (!fresh) {
+            // Bail if the result was removed, or if another load already advanced
+            // the offset while this request was in flight (avoids appending the
+            // same page twice / into the wrong state after a tab switch).
+            if (!fresh || (fresh.offset ?? 0) !== currentOffset) {
               historyStore.updateResultProcessing(resultId, false, 0)
               return
             }
