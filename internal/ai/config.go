@@ -20,10 +20,10 @@ func DefaultConfig() *Config {
 		APIKey:  "",
 		BaseURL: "https://api.openai.com/v1",
 		Models: []string{
-			"gpt-4o-mini",
+			"gpt-5.5",
+			"gpt-5.4",
 			"gpt-4o",
-			"gpt-4-turbo",
-			"gpt-3.5-turbo",
+			"gpt-4o-mini",
 		},
 		OrgID: "",
 	}
@@ -32,10 +32,13 @@ func DefaultConfig() *Config {
 		APIKey:  "",
 		BaseURL: "https://api.anthropic.com",
 		Version: "2023-06-01",
+		// Bare aliases (never date-suffixed); the live /v1/models endpoint and
+		// the models.dev catalog supersede this fallback list.
 		Models: []string{
-			"claude-sonnet-4-5-20250929",
-			"claude-haiku-4-5-20251001",
-			"claude-sonnet-4-20250514",
+			"claude-fable-5",
+			"claude-opus-4-8",
+			"claude-sonnet-4-6",
+			"claude-haiku-4-5",
 		},
 	}
 
@@ -45,9 +48,9 @@ func DefaultConfig() *Config {
 		GenerateTimeout: 2 * time.Minute,
 		AutoPullModels:  true,
 		Models: []string{
+			"llama3.2:latest",
 			"sqlcoder:7b",
 			"codellama:7b",
-			"llama3.1:8b",
 			"mistral:7b",
 		},
 	}
@@ -61,7 +64,7 @@ func DefaultConfig() *Config {
 		Models: []string{
 			"sqlcoder:7b",
 			"codellama:7b",
-			"llama3.1:8b",
+			"llama3.2:latest",
 			"mistral:7b",
 		},
 	}
@@ -77,7 +80,7 @@ func DefaultConfig() *Config {
 		APIKey:       "",
 		Organization: "",
 		BaseURL:      "https://api.openai.com/v1",
-		Model:        "code-davinci-002",
+		Model:        "gpt-5.3-codex",
 		MaxTokens:    2048,
 		Temperature:  0.0,
 	}

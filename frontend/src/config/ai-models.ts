@@ -4,7 +4,7 @@
  * Single source of truth for all AI model configurations.
  * Update this file when new models are released.
  *
- * Last updated: 2026-02-06
+ * Last updated: 2026-06-18
  *
  * @module config/ai-models
  */
@@ -39,7 +39,7 @@ export type AIProvider =
   | 'codex'
 
 /** Version timestamp - update when models change */
-export const MODEL_REGISTRY_VERSION = '2026-02-06'
+export const MODEL_REGISTRY_VERSION = '2026-06-18'
 
 /**
  * Complete model registry organized by provider
@@ -47,11 +47,28 @@ export const MODEL_REGISTRY_VERSION = '2026-02-06'
 export const AI_MODELS: Record<AIProvider, AIModel[]> = {
   openai: [
     {
-      id: 'gpt-4o',
-      displayName: 'GPT-4o',
+      id: 'gpt-5.5',
+      displayName: 'GPT-5.5',
       provider: 'openai',
       isRecommended: true,
       isLatest: true,
+      releaseDate: '2026-04-23',
+    },
+    {
+      id: 'gpt-5.4',
+      displayName: 'GPT-5.4',
+      provider: 'openai',
+      releaseDate: '2026-03-05',
+    },
+    {
+      id: 'gpt-5.1',
+      displayName: 'GPT-5.1',
+      provider: 'openai',
+    },
+    {
+      id: 'gpt-4o',
+      displayName: 'GPT-4o',
+      provider: 'openai',
       contextWindow: 128000,
       releaseDate: '2024-05-13',
     },
@@ -62,84 +79,46 @@ export const AI_MODELS: Record<AIProvider, AIModel[]> = {
       contextWindow: 128000,
       releaseDate: '2024-07-18',
     },
-    {
-      id: 'gpt-4-turbo',
-      displayName: 'GPT-4 Turbo',
-      provider: 'openai',
-      contextWindow: 128000,
-    },
-    {
-      id: 'gpt-3.5-turbo',
-      displayName: 'GPT-3.5 Turbo',
-      provider: 'openai',
-      isDeprecated: true,
-      contextWindow: 16385,
-    },
   ],
 
   anthropic: [
-    // Claude 4.x family (Latest)
+    // Current bare aliases (never date-suffixed)
     {
-      id: 'claude-opus-4-6-20260205',
-      displayName: 'Claude Opus 4.6',
+      id: 'claude-fable-5',
+      displayName: 'Claude Fable 5 (Most Capable)',
       provider: 'anthropic',
       isLatest: true,
-      contextWindow: 200000,
-      releaseDate: '2026-02-05',
+      contextWindow: 1000000,
+      releaseDate: '2026-06-09',
     },
     {
-      id: 'claude-opus-4-5-20251101',
-      displayName: 'Claude Opus 4.5',
-      provider: 'anthropic',
-      contextWindow: 200000,
-      releaseDate: '2025-11-01',
-    },
-    {
-      id: 'claude-sonnet-4-5-20250929',
-      displayName: 'Claude Sonnet 4.5',
+      id: 'claude-opus-4-8',
+      displayName: 'Claude Opus 4.8',
       provider: 'anthropic',
       isRecommended: true,
-      contextWindow: 200000,
-      releaseDate: '2025-09-29',
+      contextWindow: 1000000,
+      releaseDate: '2026-05-28',
     },
     {
-      id: 'claude-haiku-4-5-20251001',
+      id: 'claude-opus-4-7',
+      displayName: 'Claude Opus 4.7',
+      provider: 'anthropic',
+      contextWindow: 1000000,
+      releaseDate: '2026-04-16',
+    },
+    {
+      id: 'claude-sonnet-4-6',
+      displayName: 'Claude Sonnet 4.6',
+      provider: 'anthropic',
+      contextWindow: 1000000,
+      releaseDate: '2026-03-13',
+    },
+    {
+      id: 'claude-haiku-4-5',
       displayName: 'Claude Haiku 4.5',
       provider: 'anthropic',
       contextWindow: 200000,
-      releaseDate: '2025-10-01',
-    },
-    {
-      id: 'claude-sonnet-4-20250514',
-      displayName: 'Claude Sonnet 4',
-      provider: 'anthropic',
-      contextWindow: 200000,
-      releaseDate: '2025-05-14',
-    },
-    // Claude 3.x family (Legacy)
-    {
-      id: 'claude-3-5-sonnet-20241022',
-      displayName: 'Claude 3.5 Sonnet',
-      provider: 'anthropic',
-      isDeprecated: true,
-      contextWindow: 200000,
-      releaseDate: '2024-10-22',
-    },
-    {
-      id: 'claude-3-5-haiku-20241022',
-      displayName: 'Claude 3.5 Haiku',
-      provider: 'anthropic',
-      isDeprecated: true,
-      contextWindow: 200000,
-      releaseDate: '2024-10-22',
-    },
-    {
-      id: 'claude-3-opus-20240229',
-      displayName: 'Claude 3 Opus',
-      provider: 'anthropic',
-      isDeprecated: true,
-      contextWindow: 200000,
-      releaseDate: '2024-02-29',
+      releaseDate: '2025-10-15',
     },
   ],
 
@@ -210,11 +189,22 @@ export const AI_MODELS: Record<AIProvider, AIModel[]> = {
 
   codex: [
     {
-      id: 'code-davinci-002',
-      displayName: 'Code Davinci 002',
+      id: 'gpt-5.3-codex',
+      displayName: 'GPT-5.3 Codex',
       provider: 'codex',
-      isDeprecated: true,
-      deprecationDate: '2024-01-01',
+      isRecommended: true,
+      isLatest: true,
+      releaseDate: '2026-02-05',
+    },
+    {
+      id: 'gpt-5.2-codex',
+      displayName: 'GPT-5.2 Codex',
+      provider: 'codex',
+    },
+    {
+      id: 'gpt-5.1-codex',
+      displayName: 'GPT-5.1 Codex',
+      provider: 'codex',
     },
   ],
 }
