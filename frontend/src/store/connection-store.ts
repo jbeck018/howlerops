@@ -286,6 +286,22 @@ export const useConnectionStore = create<ConnectionState>()(
             activeConnection: state.activeConnection?.id === id ? null : state.activeConnection,
           }))
 
+          // Prune the deleted connection from any query tabs that referenced it
+          // in multi-DB mode, otherwise execution would silently try to use a
+          // connection that no longer exists. Lazy import to avoid a circular
+          // dependency between the connection and query-editor stores.
+          void import('./query-editor-store').then(({ useQueryEditorStore }) => {
+            const editor = useQueryEditorStore.getState()
+            for (const tab of editor.tabs) {
+              if (tab.selectedConnectionIds?.includes(id)) {
+                editor.setTabSelectedConnections(
+                  tab.id,
+                  tab.selectedConnectionIds.filter((cid) => cid !== id)
+                )
+              }
+            }
+          }).catch(() => { /* best-effort cleanup */ })
+
           // Remove from SQLite — await so the delete actually lands before we
           // consider the operation done (it used to be fire-and-forget, which
           // raced with app shutdown and left rows behind to be resurrected).

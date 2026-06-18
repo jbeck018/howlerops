@@ -181,7 +181,11 @@ export function useMultiDBSchemas({
       return
     }
 
-    loadMultiDBSchemas()
+    // Debounce: a burst of connection-state changes (e.g. auto-connecting
+    // several databases at once) would otherwise trigger a full schema reload
+    // for each flip. Coalesce them into a single load.
+    const timer = setTimeout(() => { void loadMultiDBSchemas() }, 300)
+    return () => clearTimeout(timer)
   }, [mode, connections, loadMultiDBSchemas])
 
   const columnLoader: ColumnLoader = useCallback(async (sessionId: string, schema: string, tableName: string) => {

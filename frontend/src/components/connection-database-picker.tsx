@@ -8,10 +8,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { toast } from "@/hooks/use-toast"
 import { groupConnectionsByEnvironment } from "@/lib/group-connections-by-environment"
 import { cn } from "@/lib/utils"
 import { type DatabaseConnection, useConnectionStore } from "@/store/connection-store"
 import { useActiveTab, useQueryEditorActions } from "@/store/query-editor-store"
+
+// A single federated query can reference at most this many connections (matches
+// the backend MaxConcurrentConns). Guard the selection so users hit a clear
+// message here instead of a cryptic error at execution time.
+const MAX_FEDERATION_CONNECTIONS = 10
 
 /**
  * Unified per-tab connection / database picker for the query editor toolbar.
@@ -135,6 +141,14 @@ export function ConnectionDatabasePicker() {
       if (selectedIds.length <= 1) return // keep at least one
       setTabSelectedConnections(activeTab.id, selectedIds.filter((id) => id !== conn.id))
     } else {
+      if (selectedIds.length >= MAX_FEDERATION_CONNECTIONS) {
+        toast({
+          title: "Connection limit reached",
+          description: `A single query can use at most ${MAX_FEDERATION_CONNECTIONS} connections. Deselect one to add another.`,
+          variant: "destructive",
+        })
+        return
+      }
       setTabSelectedConnections(activeTab.id, [...selectedIds, conn.id])
       if (!conn.isConnected) void connectToDatabase(conn.id)
     }
