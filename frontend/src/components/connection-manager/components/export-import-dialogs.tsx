@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
+import { isWailsEnvironment } from '@/lib/wails-runtime'
 import {
   type ConflictResolution,
   type ConnectionExportFile,
@@ -41,6 +42,7 @@ import {
   getConflictingIds,
   getExportableConnections,
   importConnections,
+  openAndReadExportFile,
   previewImport,
   readExportFile,
 } from '@/lib/export-import'
@@ -222,21 +224,44 @@ export function ImportDialog({ open, onOpenChange, onImportComplete }: ImportDia
   const [error, setError] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
 
+  const applyParsedFile = useCallback((exportFile: ConnectionExportFile) => {
+    setParsedFile(exportFile)
+    setConflictingIds(getConflictingIds(exportFile))
+  }, [])
+
   const handleFileSelect = useCallback(async (file: File) => {
     setError(null)
     setResult(null)
 
     try {
-      const exportFile = await readExportFile(file)
-      setParsedFile(exportFile)
-
-      const conflicts = getConflictingIds(exportFile)
-      setConflictingIds(conflicts)
+      applyParsedFile(await readExportFile(file))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to read file')
       setParsedFile(null)
     }
-  }, [])
+  }, [applyParsedFile])
+
+  // Browsing for a file: on the desktop build a native open dialog is reliable;
+  // the embedded webview handles <input type="file"> inconsistently. On the web
+  // build we trigger the hidden file input.
+  const handleBrowseClick = useCallback(async () => {
+    if (!isWailsEnvironment()) {
+      fileInputRef.current?.click()
+      return
+    }
+
+    setError(null)
+    setResult(null)
+    try {
+      const exportFile = await openAndReadExportFile()
+      if (exportFile) {
+        applyParsedFile(exportFile)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to read file')
+      setParsedFile(null)
+    }
+  }, [applyParsedFile])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -356,7 +381,7 @@ export function ImportDialog({ open, onOpenChange, onImportComplete }: ImportDia
                   onDrop={handleDrop}
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={handleBrowseClick}
                 >
                   <input
                     ref={fileInputRef}

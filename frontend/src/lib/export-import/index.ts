@@ -73,6 +73,7 @@ export {
 export {
   getConflictingIds,
   importConnections,
+  openAndReadExportFile,
   parseExportFile,
   previewImport,
   readExportFile,
