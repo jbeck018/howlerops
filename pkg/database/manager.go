@@ -249,6 +249,21 @@ func (m *Manager) GetConnection(connectionID string) (Database, error) {
 	return db, nil
 }
 
+// lookupSessionByName resolves a connection name to a sessionId, falling back to
+// a case-insensitive match so @Prod and @prod resolve to the same connection.
+// The caller must hold m.mu (read or write).
+func (m *Manager) lookupSessionByName(name string) (string, bool) {
+	if sessionID, ok := m.connectionNames[name]; ok {
+		return sessionID, true
+	}
+	for alias, sessionID := range m.connectionNames {
+		if strings.EqualFold(alias, name) {
+			return sessionID, true
+		}
+	}
+	return "", false
+}
+
 // resolveConnectionID resolves a connection identifier (name or sessionId) to a sessionId
 // This enables multi-DB queries to use @connectionName.table syntax
 func (m *Manager) resolveConnectionID(identifier string) (string, error) {
@@ -260,8 +275,8 @@ func (m *Manager) resolveConnectionID(identifier string) (string, error) {
 		return identifier, nil
 	}
 
-	// Try name resolution
-	if sessionID, exists := m.connectionNames[identifier]; exists {
+	// Try name resolution (case-insensitive fallback)
+	if sessionID, exists := m.lookupSessionByName(identifier); exists {
 		return sessionID, nil
 	}
 
@@ -1011,7 +1026,7 @@ func (m *Manager) ExecuteMultiQueryScoped(ctx context.Context, query string, sel
 		for _, id := range selectedConnectionIds {
 			resolvedID := id
 			if _, exists := m.connections[id]; !exists {
-				if sessionID, ok := m.connectionNames[id]; ok {
+				if sessionID, ok := m.lookupSessionByName(id); ok {
 					resolvedID = sessionID
 				}
 			}
@@ -1028,8 +1043,8 @@ func (m *Manager) ExecuteMultiQueryScoped(ctx context.Context, query string, sel
 		resolvedID := connID
 		// Try direct lookup first (sessionId)
 		if _, exists := m.connections[connID]; !exists {
-			// Try name resolution
-			if sessionID, exists := m.connectionNames[connID]; exists {
+			// Try name resolution (case-insensitive fallback)
+			if sessionID, exists := m.lookupSessionByName(connID); exists {
 				resolvedID = sessionID
 			}
 		}
@@ -1293,8 +1308,8 @@ func (m *Manager) validateConnections(connectionIDs []string) error {
 		resolvedID := connID
 		// Try direct lookup first (sessionId)
 		if _, exists := m.connections[connID]; !exists {
-			// Try name resolution
-			if sessionID, exists := m.connectionNames[connID]; exists {
+			// Try name resolution (case-insensitive fallback)
+			if sessionID, exists := m.lookupSessionByName(connID); exists {
 				resolvedID = sessionID
 			} else {
 				return fmt.Errorf("connection not found: %s", connID)

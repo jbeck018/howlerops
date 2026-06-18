@@ -174,7 +174,10 @@ func (e *Executor) executeFederated(
 			Duration:        queryResult.Duration,
 			ConnectionsUsed: parsed.RequiredConnections,
 			Strategy:        StrategyFederated,
-			Editable:        queryResult.Editable,
+			// A federated result spans connections (and the underlying editable
+			// metadata only reflects the first one), so it must not be editable —
+			// an UPDATE/DELETE would target the wrong database.
+			Editable: nil,
 		}, nil
 	}
 
