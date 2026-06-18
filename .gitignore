@@ -190,3 +190,11 @@ yarn.lock
 pnpm-lock.yaml
 .howler-agents/
 .claude/memory.db
+
+# Compiled app binary (build output — never commit)
+/server
+
+# Claude Flow harness (removed in favour of the Eino in-app agent)
+/claude-flow
+.claude-flow/
+frontend/.claude-flow/
