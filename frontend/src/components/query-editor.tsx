@@ -98,7 +98,9 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
     setActiveTab,
   } = useQueryEditorStore()
   const { executeQuery } = useQueryEngineStore()
-  const { results } = useQueryHistoryStore()
+  // Subscribe to just the results slice so QueryEditor doesn't re-render on
+  // unrelated query-history store updates.
+  const results = useQueryHistoryStore((state) => state.results)
 
   // AI Integration
   const { config: aiConfig, isEnabled: aiEnabled } = useAIConfig()

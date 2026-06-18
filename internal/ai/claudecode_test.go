@@ -43,7 +43,7 @@ func TestClaudeCode_NewClaudeCodeProvider_ValidConfig(t *testing.T) {
 
 	// Skip if Claude binary not available (CI environment)
 	if err != nil {
-		assert.Contains(t, err.Error(), "failed to create Claude Code client")
+		assert.Contains(t, err.Error(), "claude CLI not found on PATH")
 		t.Skip("Claude binary not available - expected behavior in CI")
 		return
 	}
@@ -63,7 +63,7 @@ func TestClaudeCode_NewClaudeCodeProvider_DefaultModel(t *testing.T) {
 
 	// Skip if Claude binary not available (CI environment)
 	if err != nil {
-		assert.Contains(t, err.Error(), "failed to create Claude Code client")
+		assert.Contains(t, err.Error(), "claude CLI not found on PATH")
 		t.Skip("Claude binary not available - expected behavior in CI")
 		return
 	}
@@ -83,7 +83,7 @@ func TestClaudeCode_NewClaudeCodeProvider_DefaultMaxTokens(t *testing.T) {
 
 	// Skip if Claude binary not available (CI environment)
 	if err != nil {
-		assert.Contains(t, err.Error(), "failed to create Claude Code client")
+		assert.Contains(t, err.Error(), "claude CLI not found on PATH")
 		t.Skip("Claude binary not available - expected behavior in CI")
 		return
 	}
@@ -103,7 +103,7 @@ func TestClaudeCode_NewClaudeCodeProvider_DefaultTemperature(t *testing.T) {
 
 	// Skip if Claude binary not available (CI environment)
 	if err != nil {
-		assert.Contains(t, err.Error(), "failed to create Claude Code client")
+		assert.Contains(t, err.Error(), "claude CLI not found on PATH")
 		t.Skip("Claude binary not available - expected behavior in CI")
 		return
 	}
@@ -136,7 +136,7 @@ func TestClaudeCode_NewClaudeCodeProvider_EmptyPath(t *testing.T) {
 
 	// Either succeeds or returns error, both are acceptable
 	if err != nil {
-		assert.Contains(t, err.Error(), "failed to create Claude Code client")
+		assert.Contains(t, err.Error(), "claude CLI not found on PATH")
 	} else {
 		assert.NotNil(t, provider)
 	}
@@ -154,7 +154,7 @@ func TestClaudeCode_NewClaudeCodeProvider_AllDefaults(t *testing.T) {
 
 	// Skip if Claude binary not available (CI environment)
 	if err != nil {
-		assert.Contains(t, err.Error(), "failed to create Claude Code client")
+		assert.Contains(t, err.Error(), "claude CLI not found on PATH")
 		t.Skip("Claude binary not available - expected behavior in CI")
 		return
 	}
@@ -628,7 +628,7 @@ func TestClaudeCode_ErrorHandling_NilConfig(t *testing.T) {
 	// In CI, the Claude binary may not be available
 	// Either succeeds (if binary found) or returns error (if not found)
 	if err != nil {
-		assert.Contains(t, err.Error(), "failed to create Claude Code client")
+		assert.Contains(t, err.Error(), "claude CLI not found on PATH")
 		t.Skip("Claude binary not available - expected behavior in CI")
 		return
 	}

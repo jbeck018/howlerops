@@ -44,7 +44,10 @@ export function ResultsPanel({ onFixWithAI: propOnFixWithAI, onPageChange: propO
   })))
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId)
-  const tabResults = results.filter((result) => result.tabId === activeTabId)
+  const tabResults = useMemo(
+    () => results.filter((result) => result.tabId === activeTabId),
+    [results, activeTabId]
+  )
   const latestResult = tabResults.length > 0 ? tabResults[tabResults.length - 1] : null
   const hasHistory = tabResults.length > 1
 

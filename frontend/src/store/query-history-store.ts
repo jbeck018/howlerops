@@ -236,17 +236,23 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
 
               const recomputedRows: QueryResultRow[] = []
               const recomputedOriginal: Record<string, QueryResultRow> = {}
+              // Track whether any row's identity actually changes. This action
+              // fires when editable metadata arrives (and can re-fire while it's
+              // polled), often right after the rows first render — rebuilding
+              // every row object would re-render the whole grid (a visible
+              // flash). We only mint new row objects for rows whose __rowId truly
+              // changes and otherwise keep the existing reference.
+              let rowsChanged = false
 
               result.rows.forEach((row, index) => {
                 const existingOriginal = result.originalRows[row.__rowId] ?? row
-                const nextRow: QueryResultRow = { ...row }
 
                 let rowId = ''
                 if (pkColumns.length > 0) {
                   const parts: string[] = []
                   let allPresent = true
                   pkColumns.forEach((pkColumn) => {
-                    const value = nextRow[pkColumn]
+                    const value = row[pkColumn]
                     if (value === undefined) {
                       allPresent = false
                     } else {
@@ -260,15 +266,24 @@ export const useQueryHistoryStore = create<QueryHistoryState>()(
                 }
 
                 if (!rowId) {
-                  rowId = `${generateRowId()}-${index}`
+                  // Reuse an already-assigned id so repeated metadata refreshes
+                  // don't regenerate a random id (which would break row identity
+                  // and flash the grid); only mint one when truly missing.
+                  rowId = row.__rowId || `${generateRowId()}-${index}`
                 }
 
-                nextRow.__rowId = rowId
-                recomputedRows.push(nextRow)
+                if (rowId === row.__rowId) {
+                  recomputedRows.push(row)
+                } else {
+                  recomputedRows.push({ ...row, __rowId: rowId })
+                  rowsChanged = true
+                }
                 recomputedOriginal[rowId] = { ...(existingOriginal as QueryResultRow), __rowId: rowId }
               })
 
-              updatedRows = recomputedRows
+              // Keep the existing rows array reference when no id changed so the
+              // grid skips reconciliation entirely.
+              updatedRows = rowsChanged ? recomputedRows : result.rows
               updatedOriginalRows = recomputedOriginal
             }
 
