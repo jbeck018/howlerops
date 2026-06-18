@@ -37,6 +37,7 @@ export type AIProvider =
   | 'huggingface'
   | 'claudecode'
   | 'codex'
+  | 'custom'
 
 /** Version timestamp - update when models change */
 export const MODEL_REGISTRY_VERSION = '2026-06-18'
@@ -207,6 +208,9 @@ export const AI_MODELS: Record<AIProvider, AIModel[]> = {
       provider: 'codex',
     },
   ],
+  // Custom OpenAI-compatible endpoints have no preset catalog — the model id is
+  // entered by the user (it varies per gateway/service).
+  custom: [],
 }
 
 // =============================================================================

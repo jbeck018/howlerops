@@ -117,7 +117,8 @@ export function Settings() {
   const [showApiKeys, setShowApiKeys] = useState({
     openai: false,
     anthropic: false,
-    codex: false
+    codex: false,
+    custom: false
   })
   const hasAutoTestedLocalRef = useRef(false)
 
@@ -143,6 +144,7 @@ export function Settings() {
         // Success notification is now handled by Wails dialog in the store
         // Optionally show inline success message as well
         const providerName = provider === 'claudecode' ? 'Claude Code' :
+                           provider === 'custom' ? (aiConfig.customName || 'Custom endpoint') :
                            provider === 'codex' ? 'Codex' :
                            provider === 'huggingface' ? 'Hugging Face' :
                            provider === 'ollama' ? 'Ollama' :
@@ -463,6 +465,7 @@ export function Settings() {
                       <SelectItem value="codex">OpenAI Codex</SelectItem>
                       <SelectItem value="ollama">Ollama (Local)</SelectItem>
                       <SelectItem value="huggingface">Hugging Face (Local)</SelectItem>
+                      <SelectItem value="custom">Custom (OpenAI-compatible)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1003,6 +1006,84 @@ You can also start it manually by running: ollama serve`)
                           </ol>
                         </div>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Custom (OpenAI-compatible) Configuration */}
+                {aiConfig.provider === 'custom' && (
+                  <div className="space-y-4 p-4 border rounded-lg bg-muted/20">
+                    <div className="flex items-center gap-2">
+                      <Server className="h-4 w-4" />
+                      <Label className="text-sm font-medium">Custom (OpenAI-compatible) Configuration</Label>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Point HowlerOps at any endpoint that implements the OpenAI API — a Bedrock or
+                      Mantle gateway, Groq, OpenRouter, vLLM, LM Studio, and so on.
+                    </p>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="custom-name">Name</Label>
+                      <Input
+                        id="custom-name"
+                        placeholder="Bedrock (gateway)"
+                        value={aiConfig.customName}
+                        onChange={(e) => handleAiConfigChange('customName', e.target.value)}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="custom-base-url">Base URL</Label>
+                      <Input
+                        id="custom-base-url"
+                        placeholder="https://my-gateway.example.com/v1"
+                        value={aiConfig.customBaseUrl}
+                        onChange={(e) => handleAiConfigChange('customBaseUrl', e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        The OpenAI-style base URL (a <code>/v1</code> suffix is added automatically if omitted).
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="custom-api-key">API Key</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="custom-api-key"
+                          type={showApiKeys.custom ? "text" : "password"}
+                          placeholder="sk-…"
+                          value={aiConfig.customApiKey}
+                          onChange={(e) => handleAiConfigChange('customApiKey', e.target.value)}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowApiKeys({...showApiKeys, custom: !showApiKeys.custom})}
+                        >
+                          {showApiKeys.custom ? "Hide" : "Show"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleTestConnection('custom')}
+                          disabled={connectionStatus.custom === 'testing'}
+                        >
+                          {connectionStatus.custom === 'testing' ? 'Testing...' : 'Test'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="custom-model">Model</Label>
+                      <Input
+                        id="custom-model"
+                        placeholder="anthropic.claude-3-5-sonnet"
+                        value={aiConfig.selectedModel}
+                        onChange={(e) => handleAiConfigChange('selectedModel', e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        The model id exactly as the endpoint expects it.
+                      </p>
                     </div>
                   </div>
                 )}

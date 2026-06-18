@@ -120,6 +120,14 @@ func (s *WailsAIService) buildAgentModelConfig(provider, model string) agent.Mod
 		if model == "" {
 			cfg.Model = s.aiConfig.HuggingFace.RecommendedModel
 		}
+	case "custom":
+		// User-defined OpenAI-compatible endpoint — served through the OpenAI
+		// client (BuildModel's default case) with the configured base URL/key.
+		cfg.APIKey = s.aiConfig.Custom.APIKey
+		cfg.BaseURL = s.aiConfig.Custom.BaseURL
+		if model == "" && len(s.aiConfig.Custom.Models) > 0 {
+			cfg.Model = s.aiConfig.Custom.Models[0]
+		}
 	}
 	return cfg
 }

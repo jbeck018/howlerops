@@ -15,6 +15,9 @@ const (
 	ProviderHuggingFace Provider = "huggingface"
 	ProviderClaudeCode  Provider = "claudecode"
 	ProviderCodex       Provider = "codex"
+	// ProviderCustom is a user-defined endpoint that speaks the OpenAI API
+	// (e.g. a Bedrock/Mantle gateway, Groq, OpenRouter, vLLM, LM Studio).
+	ProviderCustom Provider = "custom"
 )
 
 // Config holds the configuration for the AI service
@@ -25,6 +28,7 @@ type Config struct {
 	HuggingFace HuggingFaceConfig `json:"huggingface" yaml:"huggingface"`
 	ClaudeCode  ClaudeCodeConfig  `json:"claudecode" yaml:"claudecode"`
 	Codex       CodexConfig       `json:"codex" yaml:"codex"`
+	Custom      CustomConfig      `json:"custom" yaml:"custom"`
 
 	// Global settings
 	DefaultProvider Provider      `json:"default_provider" yaml:"default_provider"`
@@ -48,6 +52,17 @@ type AnthropicConfig struct {
 	BaseURL string   `json:"base_url" yaml:"base_url"`
 	Models  []string `json:"models" yaml:"models"`
 	Version string   `json:"version" yaml:"version"`
+}
+
+// CustomConfig holds a user-defined OpenAI-compatible endpoint (base URL +
+// API key + model). It is served through the same OpenAI client path, so any
+// service that implements the OpenAI API (gateways for Bedrock/Mantle, Groq,
+// OpenRouter, vLLM, LM Studio, …) works without a dedicated provider.
+type CustomConfig struct {
+	Name    string   `json:"name" yaml:"name"`
+	APIKey  string   `json:"api_key" yaml:"api_key"`
+	BaseURL string   `json:"base_url" yaml:"base_url"`
+	Models  []string `json:"models" yaml:"models"`
 }
 
 // OllamaConfig holds Ollama specific configuration

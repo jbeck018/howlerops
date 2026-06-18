@@ -84,6 +84,18 @@ function buildProviderConfig(provider: string, config: AIConfig) {
       }
       break
     }
+
+    case 'custom': {
+      // User-defined OpenAI-compatible endpoint (Bedrock/Mantle gateway, Groq,
+      // OpenRouter, vLLM, …): base URL + key + a free-form model id.
+      payload.apiKey = config.customApiKey
+      payload.endpoint = config.customBaseUrl
+      payload.model = config.selectedModel || undefined
+      if (config.customName) {
+        payload.options = { name: config.customName }
+      }
+      break
+    }
   }
 
   return payload
@@ -91,7 +103,7 @@ function buildProviderConfig(provider: string, config: AIConfig) {
 
 export interface AIConfig {
   enabled: boolean
-  provider: 'openai' | 'anthropic' | 'ollama' | 'huggingface' | 'claudecode' | 'codex'
+  provider: 'openai' | 'anthropic' | 'ollama' | 'huggingface' | 'claudecode' | 'codex' | 'custom'
   openaiApiKey: string
   anthropicApiKey: string
   claudeCodePath: string  // Path to Claude CLI executable
@@ -99,6 +111,9 @@ export interface AIConfig {
   codexOrganization: string // OpenAI organization ID for Codex
   ollamaEndpoint: string
   huggingfaceEndpoint: string
+  customName: string      // Label for the custom OpenAI-compatible endpoint
+  customApiKey: string    // API key for the custom endpoint
+  customBaseUrl: string   // Base URL of the custom OpenAI-compatible endpoint
   selectedModel: string
   maxTokens: number
   temperature: number
@@ -129,6 +144,7 @@ export interface AIState {
     huggingface: 'connected' | 'disconnected' | 'testing' | 'error'
     claudecode: 'connected' | 'disconnected' | 'testing' | 'error'
     codex: 'connected' | 'disconnected' | 'testing' | 'error'
+    custom: 'connected' | 'disconnected' | 'testing' | 'error'
   }
   memoriesHydrated: boolean
   providerSynced: boolean
@@ -173,6 +189,9 @@ const defaultConfig: AIConfig = {
   codexOrganization: '',
   ollamaEndpoint: 'http://localhost:11434',
   huggingfaceEndpoint: 'http://localhost:11434',
+  customName: '',
+  customApiKey: '',
+  customBaseUrl: '',
   selectedModel: getDefaultModelId('openai'),
   maxTokens: 2048,
   temperature: 0.1,
@@ -193,6 +212,7 @@ const defaultState: AIState = {
     huggingface: 'disconnected',
     claudecode: 'disconnected',
     codex: 'disconnected',
+    custom: 'disconnected',
   },
   memoriesHydrated: false,
   providerSynced: false,

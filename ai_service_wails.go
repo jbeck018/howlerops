@@ -299,6 +299,21 @@ func (s *WailsAIService) ConfigureAIProvider(config ProviderConfig) error {
 		}
 		s.aiConfig.DefaultProvider = ai.ProviderCodex
 
+	case "custom":
+		s.aiConfig.Custom.APIKey = strings.TrimSpace(config.APIKey)
+		s.aiConfig.Custom.BaseURL = openAICompatBaseURL(strings.TrimSpace(config.Endpoint))
+		if config.Options != nil {
+			if name, ok := config.Options["name"]; ok {
+				s.aiConfig.Custom.Name = strings.TrimSpace(name)
+			}
+		}
+		if config.Model != "" && !containsModel(s.aiConfig.Custom.Models, config.Model) {
+			// Keep the chosen model at the head of the list (newest-first), so
+			// buildAgentModelConfig picks it by default.
+			s.aiConfig.Custom.Models = append([]string{config.Model}, s.aiConfig.Custom.Models...)
+		}
+		s.aiConfig.DefaultProvider = ai.ProviderCustom
+
 	default:
 		return fmt.Errorf("unknown AI provider: %s", config.Provider)
 	}
@@ -361,6 +376,16 @@ func (s *WailsAIService) GetAIConfiguration() (ProviderConfig, error) {
 	case "huggingface":
 		config.Endpoint = s.aiConfig.HuggingFace.Endpoint
 		config.Model = s.aiConfig.HuggingFace.RecommendedModel
+
+	case "custom":
+		config.APIKey = maskSecret(s.aiConfig.Custom.APIKey)
+		config.Endpoint = s.aiConfig.Custom.BaseURL
+		if len(s.aiConfig.Custom.Models) > 0 {
+			config.Model = s.aiConfig.Custom.Models[0]
+		}
+		config.Options = map[string]string{
+			"name": s.aiConfig.Custom.Name,
+		}
 	}
 
 	return config, nil
@@ -425,12 +450,23 @@ func (s *WailsAIService) TestAIProvider(config ProviderConfig) (*ProviderStatus,
 		}
 		testConfig.DefaultProvider = ai.ProviderCodex
 
+	case "custom":
+		// A custom endpoint is OpenAI-compatible, so exercise it through the
+		// OpenAI provider against the supplied base URL.
+		testConfig.OpenAI.APIKey = strings.TrimSpace(config.APIKey)
+		testConfig.OpenAI.BaseURL = openAICompatBaseURL(strings.TrimSpace(config.Endpoint))
+		if config.Model != "" {
+			testConfig.OpenAI.Models = []string{config.Model}
+		}
+		testConfig.DefaultProvider = ai.ProviderOpenAI
+
 	default:
 		return nil, fmt.Errorf("unknown AI provider: %s", config.Provider)
 	}
 
-	// Remove other providers to avoid validation noise
-	if provider != "openai" {
+	// Remove other providers to avoid validation noise. "custom" is tested via
+	// the OpenAI slot above, so keep that key in place for it too.
+	if provider != "openai" && provider != "custom" {
 		testConfig.OpenAI.APIKey = ""
 	}
 	if provider != "anthropic" {
