@@ -147,24 +147,24 @@ install_platform_deps() {
             if command -v apt-get &> /dev/null; then
                 print_status "Installing build dependencies (Debian/Ubuntu)..."
                 sudo apt-get update
-                sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.0-dev
+                sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
             elif command -v yum &> /dev/null; then
                 print_status "Installing build dependencies (RHEL/CentOS)..."
                 sudo yum groupinstall -y "Development Tools"
-                sudo yum install -y pkg-config gtk3-devel webkit2gtk3-devel
+                sudo yum install -y pkg-config gtk4-devel webkitgtk6.0-devel
             elif command -v dnf &> /dev/null; then
                 print_status "Installing build dependencies (Fedora)..."
                 sudo dnf groupinstall -y "Development Tools"
-                sudo dnf install -y pkg-config gtk3-devel webkit2gtk3-devel
+                sudo dnf install -y pkg-config gtk4-devel webkitgtk6.0-devel
             elif command -v pacman &> /dev/null; then
                 print_status "Installing build dependencies (Arch Linux)..."
-                sudo pacman -S --needed base-devel pkg-config gtk3 webkit2gtk
+                sudo pacman -S --needed base-devel pkg-config gtk4 webkitgtk-6.0
             else
                 print_warning "Unknown Linux distribution. Please install build tools manually:"
                 echo "  - gcc/g++ compiler"
                 echo "  - pkg-config"
-                echo "  - GTK3 development headers"
-                echo "  - WebKit2GTK development headers"
+                echo "  - GTK4 development headers"
+                echo "  - WebKitGTK 6.0 development headers"
             fi
             ;;
         windows)
