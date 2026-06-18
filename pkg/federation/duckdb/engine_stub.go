@@ -38,6 +38,16 @@ func (e *Engine) CreateView(ctx context.Context, viewName, compiledSQL string) e
 	return fmt.Errorf("DuckDB federation engine is disabled")
 }
 
+// Attach is a no-op in the disabled build.
+func (e *Engine) Attach(ctx context.Context, sessionID, alias, connStr, dbType, fingerprint string) error {
+	return fmt.Errorf("DuckDB federation engine is disabled")
+}
+
+// Detach is a no-op in the disabled build.
+func (e *Engine) Detach(ctx context.Context, sessionID string) error {
+	return nil
+}
+
 // Close closes the DuckDB connection
 func (e *Engine) Close() error {
 	return nil
