@@ -250,6 +250,16 @@ type TableStructure struct {
 	Statistics  map[string]string `json:"statistics"`
 }
 
+// FullDatabaseSchema is the complete introspection of a connection's schema in
+// one payload: every schema, its tables, and each table's full structure. It
+// collapses the frontend's databases -> tables -> columns fan-out into a single
+// backend round-trip.
+type FullDatabaseSchema struct {
+	Schemas    []string         `json:"schemas"`
+	Tables     []TableInfo      `json:"tables"`     // flat list across all schemas
+	Structures []TableStructure `json:"structures"` // one per table (cols, indexes, FKs)
+}
+
 // ============================================================================
 // Multi-Database Query Types
 // ============================================================================

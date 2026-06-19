@@ -2,6 +2,8 @@ module github.com/jbeck018/howlerops
 
 go 1.26
 
+toolchain go1.26.4
+
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
 	github.com/DATA-DOG/go-sqlmock v1.5.2
@@ -33,7 +35,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
 	github.com/tursodatabase/libsql-client-go v0.0.0-20260528064733-9d5d30a29a60
-	github.com/wailsapp/wails/v3 v3.0.0-alpha2.103
+	github.com/wailsapp/wails/v3 v3.0.0-alpha2.104
 	github.com/xuri/excelize/v2 v2.10.1
 	github.com/zalando/go-keyring v0.2.8
 	go.mongodb.org/mongo-driver v1.17.9

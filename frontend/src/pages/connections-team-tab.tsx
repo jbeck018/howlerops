@@ -14,9 +14,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { Connection } from '@/lib/api/connections'
 import type { SavedQuery } from '@/lib/api/queries'
-import { useConnectionsStore } from '@/store/connections-store'
 import { useOrganizationStore } from '@/store/organization-store'
 import { useQueriesStore } from '@/store/queries-store'
+import { useConnections } from '@/store/use-connections'
 
 type ResourceTab = 'connections' | 'queries'
 
@@ -30,12 +30,12 @@ export function TeamConnectionsTab({ hideHeader = false }: TeamConnectionsTabPro
   const { currentOrgId, organizations } = useOrganizationStore()
   const {
     sharedConnections,
-    fetchSharedConnections,
+    fetchShared: fetchSharedConnections,
     unshareConnection,
-    deleteConnection,
-    loading: connectionsLoading,
-    error: connectionsError,
-  } = useConnectionsStore()
+    deleteRemote: deleteConnection,
+    remoteLoading: connectionsLoading,
+    remoteError: connectionsError,
+  } = useConnections()
 
   const {
     sharedQueries,

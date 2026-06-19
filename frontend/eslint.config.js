@@ -113,4 +113,11 @@ export default tseslint.config(
       'react-refresh/only-export-components': 'off', // Allow exporting buttonVariants alongside Button
     }
   },
+  // Node-side build tooling (binding dispatcher generator, etc.)
+  {
+    files: ['scripts/**/*.{js,mjs,cjs}'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 )

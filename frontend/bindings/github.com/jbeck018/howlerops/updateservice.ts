@@ -28,6 +28,13 @@ export function CheckForUpdates(): $CancellablePromise<$models.UpdateInfo | null
 }
 
 /**
+ * DownloadAndInstall updates the app in place via the official installer.
+ */
+export function DownloadAndInstall(): $CancellablePromise<void> {
+    return $Call.ByID(2603818348);
+}
+
+/**
  * GetCurrentVersion returns the current application version
  */
 export function GetCurrentVersion(): $CancellablePromise<string> {
@@ -39,6 +46,13 @@ export function GetCurrentVersion(): $CancellablePromise<string> {
  */
 export function OpenDownloadPage(): $CancellablePromise<void> {
     return $Call.ByID(2850189251);
+}
+
+/**
+ * RestartApp relaunches the updated app and quits the current instance.
+ */
+export function RestartApp(): $CancellablePromise<void> {
+    return $Call.ByID(2441291342);
 }
 
 /**

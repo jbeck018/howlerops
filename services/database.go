@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/jbeck018/howlerops/pkg/database"
 	"github.com/jbeck018/howlerops/pkg/database/multiquery"
@@ -705,6 +706,59 @@ func (s *DatabaseService) GetTableStructure(connectionID, schema, table string) 
 	}
 
 	return db.GetTableStructure(s.ctx, schema, table)
+}
+
+// GetConnectionSchemaFull introspects every schema + table for a connection in a
+// single call, parallelizing the per-table structure reads with bounded
+// concurrency (mirrors the pattern in pkg/schemadiff). Each table read borrows
+// its own pooled connection, so SetLimit(8) avoids a thundering herd.
+func (s *DatabaseService) GetConnectionSchemaFull(connectionID string) ([]string, []database.TableInfo, []*database.TableStructure, error) {
+	db, err := s.manager.GetConnection(connectionID)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("connection not found: %w", err)
+	}
+
+	schemas, err := db.GetSchemas(s.ctx)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("list schemas: %w", err)
+	}
+
+	// Gather all (schema, table) refs (one GetTables call per schema).
+	type ref struct{ schema, table string }
+	var refs []ref
+	var tables []database.TableInfo
+	for _, schema := range schemas {
+		ts, err := db.GetTables(s.ctx, schema)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("tables for %s: %w", schema, err)
+		}
+		tables = append(tables, ts...)
+		for _, t := range ts {
+			refs = append(refs, ref{schema: schema, table: t.Name})
+		}
+	}
+
+	// Introspect each table's structure concurrently (bounded). Each call uses
+	// its own pooled connection (same safety basis as pkg/schemadiff).
+	structures := make([]*database.TableStructure, len(refs))
+	g, gctx := errgroup.WithContext(s.ctx)
+	g.SetLimit(8)
+	for i, r := range refs {
+		i, r := i, r
+		g.Go(func() error {
+			st, err := db.GetTableStructure(gctx, r.schema, r.table)
+			if err != nil {
+				return fmt.Errorf("structure %s.%s: %w", r.schema, r.table, err)
+			}
+			structures[i] = st
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, nil, nil, err
+	}
+
+	return schemas, tables, structures, nil
 }
 
 // ExplainQuery returns query execution plan

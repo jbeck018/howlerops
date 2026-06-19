@@ -16,6 +16,7 @@ import type {
   DeleteRowsResult,
   EditableMetadata,
   ExplainResult,
+  FullSchemaResult,
   InsertRowRequest,
   InsertRowResult,
   ListDatabasesResult,
@@ -273,6 +274,15 @@ export const wailsApiClient: ApiClient = {
         foreignKeys: result.foreignKeys || [],
         triggers: result.triggers || [],
         statistics: result.statistics || {},
+        success: result.success,
+        message: result.message,
+      }
+    },
+
+    full: async (connectionId: string): Promise<FullSchemaResult> => {
+      const result = await wailsEndpoints.schema.full(connectionId)
+      return {
+        data: result.data,
         success: result.success,
         message: result.message,
       }

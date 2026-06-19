@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useConnectionsStore } from '@/store/connections-store'
+import { useConnections } from '@/store/use-connections'
 
 interface ConnectionPickerProps {
   value?: string
@@ -38,13 +38,12 @@ export function ConnectionPicker({
   disabled,
   label = 'Database Connection',
 }: ConnectionPickerProps) {
-  const connections = useConnectionsStore((state) => state.connections)
-  const loading = useConnectionsStore((state) => state.loading)
-  const fetchConnections = useConnectionsStore((state) => state.fetchConnections)
+  // Unified facade: shows local + org-shared connections as one de-duped list.
+  const { connections, remoteLoading: loading, fetchRemote } = useConnections()
 
   useEffect(() => {
-    fetchConnections().catch(console.error)
-  }, [fetchConnections])
+    fetchRemote().catch(console.error)
+  }, [fetchRemote])
 
   return (
     <div className="space-y-2">
@@ -63,12 +62,12 @@ export function ConnectionPicker({
             <SelectItem key={conn.id} value={conn.id}>
               <div className="flex items-center gap-2">
                 <Database
-                  className={`h-4 w-4 ${DATABASE_TYPE_COLORS[conn.database_type] || 'text-gray-600'}`}
+                  className={`h-4 w-4 ${DATABASE_TYPE_COLORS[conn.type] || 'text-gray-600'}`}
                 />
                 <div className="flex flex-col">
                   <span className="font-medium">{conn.name}</span>
                   <span className="text-xs text-muted-foreground">
-                    {DATABASE_TYPE_LABELS[conn.database_type] || conn.database_type}
+                    {DATABASE_TYPE_LABELS[conn.type] || conn.type}
                     {conn.description && ` • ${conn.description}`}
                   </span>
                 </div>

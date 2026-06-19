@@ -41,6 +41,12 @@ export interface Connection {
  * Input for creating a connection
  */
 export interface CreateConnectionInput {
+  /**
+   * Optional client-supplied id. The server reuses it when present (it only
+   * mints a UUID when empty), keeping a connection's local id and server id in
+   * sync so the unified `useConnections` facade joins them as one record.
+   */
+  id?: string
   name: string
   description?: string
   database_type: string

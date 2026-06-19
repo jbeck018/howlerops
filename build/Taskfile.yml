@@ -102,27 +102,14 @@ tasks:
       - task: generate:bindings:shim
 
   generate:bindings:shim:
-    summary: Recreates app.js compatibility shim after binding generation
+    summary: Generates the name-based binding dispatcher (app.ts/app.js/app.d.ts) from the per-service bindings
     internal: true
-    dir: frontend/bindings/github.com/jbeck018/howlerops
+    dir: frontend
     cmds:
-      - |
-        printf '%s\n' \
-          '// Compatibility shim: re-exports all service methods under the old "app" namespace.' \
-          '// Existing frontend code imports from ".../app"; this shim maps to per-service modules.' \
-          '' \
-          'export * from "./catalogservice.js";' \
-          'export * from "./connectionservice.js";' \
-          'export * from "./queryservice.js";' \
-          'export * from "./schemadiffservice.js";' \
-          'export * from "./storageservice.js";' \
-          'export * from "./updateservice.js";' \
-          'export * from "./wailsaiservice.js";' \
-          'export * from "./wailsauthservice.js";' \
-          'export * from "./wailsfileservice.js";' \
-          'export * from "./wailskeyboardservice.js";' \
-          'export * from "./wailsreportservice.js";' \
-          > app.js
+      # Synthesize the ".../app" dispatcher from the wails-generated per-service
+      # files. Test-safe (lazy runtime import) and fully derived from the Go
+      # services, so adding a backend method needs no hand-editing of bindings.
+      - node scripts/generate-bindings-dispatcher.mjs
 
   generate:icons:
     summary: Generates Windows `.ico`, Mac `.icns`, and Mac `Assets.car` from the appicon.png input image.

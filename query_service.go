@@ -311,6 +311,14 @@ func (s *QueryService) GetTableStructure(connectionID, schema, table string) (*T
 		return nil, err
 	}
 
+	dto := mapTableStructureDTO(structure)
+	return &dto, nil
+}
+
+// mapTableStructureDTO converts a backend database.TableStructure into the
+// frontend-facing TableStructure DTO. Shared by GetTableStructure and
+// GetConnectionSchemaFull so both stay in lockstep.
+func mapTableStructureDTO(structure *database.TableStructure) TableStructure {
 	columns := make([]ColumnInfo, 0, len(structure.Columns))
 	for _, column := range structure.Columns {
 		columns = append(columns, ColumnInfo{
@@ -356,7 +364,7 @@ func (s *QueryService) GetTableStructure(connectionID, schema, table string) (*T
 		})
 	}
 
-	return &TableStructure{
+	return TableStructure{
 		Table: TableInfo{
 			Schema:    structure.Table.Schema,
 			Name:      structure.Table.Name,
@@ -370,7 +378,39 @@ func (s *QueryService) GetTableStructure(connectionID, schema, table string) (*T
 		ForeignKeys: fks,
 		Triggers:    structure.Triggers,
 		Statistics:  structure.Statistics,
-	}, nil
+	}
+}
+
+// GetConnectionSchemaFull returns the entire schema of a connection (schemas +
+// tables + per-table structures) in a single call, replacing the frontend's
+// databases -> tables -> columns IPC waterfall.
+func (s *QueryService) GetConnectionSchemaFull(connectionID string) (*FullDatabaseSchema, error) {
+	schemas, tables, structures, err := s.deps.DatabaseService.GetConnectionSchemaFull(connectionID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &FullDatabaseSchema{Schemas: schemas}
+	out.Tables = make([]TableInfo, len(tables))
+	for i, t := range tables {
+		out.Tables[i] = TableInfo{
+			Schema:    t.Schema,
+			Name:      t.Name,
+			Type:      t.Type,
+			Comment:   t.Comment,
+			RowCount:  t.RowCount,
+			SizeBytes: t.SizeBytes,
+		}
+	}
+
+	out.Structures = make([]TableStructure, 0, len(structures))
+	for _, st := range structures {
+		if st == nil {
+			continue
+		}
+		out.Structures = append(out.Structures, mapTableStructureDTO(st))
+	}
+	return out, nil
 }
 
 // ExplainQuery returns query execution plan
