@@ -621,13 +621,29 @@ const ComponentEditor = React.memo(
     )
   },
   (prev, next) => {
-    // Custom comparison: only re-render if component data, result, disabled, or selected state changes
+    // Custom comparison: only re-render if component data, result, disabled, or
+    // selected state changes. Compare results by cheap identity fields rather
+    // than JSON.stringify'ing the full row set on every render (which could be
+    // large) — a re-run always changes rowCount/durationMs.
+    const sameResult = (a?: ReportRunComponentResult, b?: ReportRunComponentResult) => {
+      if (a === b) return true
+      if (!a || !b) return false
+      return (
+        a.componentId === b.componentId &&
+        a.rowCount === b.rowCount &&
+        a.durationMs === b.durationMs &&
+        a.error === b.error &&
+        a.content === b.content &&
+        (a.rows?.length ?? 0) === (b.rows?.length ?? 0) &&
+        (a.columns?.join(' ') ?? '') === (b.columns?.join(' ') ?? '')
+      )
+    }
     return (
       prev.component.id === next.component.id &&
       prev.disabled === next.disabled &&
       prev.isSelected === next.isSelected &&
       JSON.stringify(prev.component) === JSON.stringify(next.component) &&
-      JSON.stringify(prev.result) === JSON.stringify(next.result)
+      sameResult(prev.result, next.result)
     )
   }
 )

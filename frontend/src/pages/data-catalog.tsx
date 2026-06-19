@@ -399,6 +399,14 @@ export function DataCatalog() {
     return Array.from(schemaSet).sort()
   }, [tables])
 
+  // Index tags by name so badge rendering is O(1) instead of a tags.find scan
+  // per tag per table (previously O(tables x tags)).
+  const tagsByName = useMemo(() => {
+    const map = new Map<string, catalog.CatalogTag>()
+    for (const t of tags) map.set(t.name, t)
+    return map
+  }, [tags])
+
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       <div className="flex-1 space-y-6 overflow-y-auto p-6">
@@ -708,7 +716,7 @@ export function DataCatalog() {
                                 {table.tags && table.tags.length > 0 && (
                                   <div className="flex gap-1">
                                     {table.tags.slice(0, 3).map((tagName) => {
-                                      const tag = tags.find((t) => t.name === tagName)
+                                      const tag = tagsByName.get(tagName)
                                       return (
                                         <Badge key={tagName} variant="outline" style={{ borderColor: tag?.color }}>
                                           {tagName}
@@ -778,7 +786,7 @@ export function DataCatalog() {
                                       {column.tags && column.tags.length > 0 && (
                                         <div className="flex gap-1">
                                           {column.tags.map((tagName) => {
-                                            const tag = tags.find((t) => t.name === tagName)
+                                            const tag = tagsByName.get(tagName)
                                             return (
                                               <Badge key={tagName} variant="outline" style={{ borderColor: tag?.color }}>
                                                 {tagName}
@@ -836,7 +844,7 @@ export function DataCatalog() {
                           <div className="text-muted-foreground">{table.description || '-'}</div>
                           <div className="flex flex-wrap gap-1">
                             {table.tags?.slice(0, 2).map((tagName) => {
-                              const tag = tags.find((t) => t.name === tagName)
+                              const tag = tagsByName.get(tagName)
                               return (
                                 <Badge key={tagName} variant="outline" style={{ borderColor: tag?.color }}>
                                   {tagName}

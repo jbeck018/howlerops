@@ -2,6 +2,7 @@ package rag
 
 import (
 	"bytes"
+	"container/list"
 	"context"
 
 	// #nosec G501 - MD5 used for cache key generation, not cryptographic security
@@ -14,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -38,13 +40,25 @@ type EmbeddingService interface {
 
 // EmbeddingCache caches embeddings to avoid redundant API calls
 type EmbeddingCache struct {
-	cache        map[string]CachedEmbedding
-	maxSize      int
-	ttl          time.Duration
-	mu           sync.RWMutex
-	hits         int64
-	misses       int64
-	evictedCount int64
+	// items maps a key to its node in the lru list; lru is ordered most-recently
+	// used at the front so eviction (Back) and promotion (MoveToFront) are O(1)
+	// instead of the previous O(n) scan under the exclusive lock.
+	items   map[string]*list.Element
+	lru     *list.List
+	maxSize int
+	ttl     time.Duration
+	mu      sync.Mutex
+	// Counters are atomic so GetStats and hit/miss accounting don't depend on the
+	// cache mutex.
+	hits         atomic.Int64
+	misses       atomic.Int64
+	evictedCount atomic.Int64
+}
+
+// cacheEntry is the value stored in each lru list element.
+type cacheEntry struct {
+	key   string
+	value CachedEmbedding
 }
 
 // CachedEmbedding represents a cached embedding
@@ -144,7 +158,8 @@ func (p *FallbackEmbeddingProvider) GetModel() string {
 // NewEmbeddingService creates a new embedding service
 func NewEmbeddingService(provider EmbeddingProvider, logger *logrus.Logger) *DefaultEmbeddingService {
 	cache := &EmbeddingCache{
-		cache:   make(map[string]CachedEmbedding),
+		items:   make(map[string]*list.Element),
+		lru:     list.New(),
 		maxSize: 10000,
 		ttl:     24 * time.Hour,
 	}
@@ -345,24 +360,25 @@ func (es *DefaultEmbeddingService) getCacheKey(text string) string {
 
 // Get retrieves an embedding from cache
 func (ec *EmbeddingCache) Get(key string) ([]float32, bool) {
-	ec.mu.Lock() // Use write lock for modifications
+	ec.mu.Lock()
 	defer ec.mu.Unlock()
 
-	if cached, found := ec.cache[key]; found {
+	if elem, found := ec.items[key]; found {
+		entry := elem.Value.(*cacheEntry)
 		// Check if not expired
-		if time.Since(cached.CreatedAt) <= ec.ttl {
-			ec.hits++
-			cached.AccessedAt = time.Now()
-			cached.AccessCount++
-			ec.cache[key] = cached
-			return slices.Clone(cached.Embedding), true // Return copy to prevent external modification
+		if time.Since(entry.value.CreatedAt) <= ec.ttl {
+			ec.hits.Add(1)
+			entry.value.AccessedAt = time.Now()
+			entry.value.AccessCount++
+			ec.lru.MoveToFront(elem) // mark most-recently used (O(1))
+			return slices.Clone(entry.value.Embedding), true
 		}
 		// Expired, remove it
-		delete(ec.cache, key)
-		ec.evictedCount++
+		ec.removeElement(elem)
+		ec.evictedCount.Add(1)
 	}
 
-	ec.misses++
+	ec.misses.Add(1)
 	return nil, false
 }
 
@@ -371,54 +387,72 @@ func (ec *EmbeddingCache) Set(key string, embedding []float32) {
 	ec.mu.Lock()
 	defer ec.mu.Unlock()
 
-	// Check cache size and evict if necessary
-	if len(ec.cache) >= ec.maxSize {
+	// Update in place if the key already exists.
+	if elem, found := ec.items[key]; found {
+		entry := elem.Value.(*cacheEntry)
+		entry.value = CachedEmbedding{
+			Embedding:   embedding,
+			CreatedAt:   time.Now(),
+			AccessedAt:  time.Now(),
+			AccessCount: 1,
+		}
+		ec.lru.MoveToFront(elem)
+		return
+	}
+
+	// Evict the least-recently-used entry if at capacity.
+	if len(ec.items) >= ec.maxSize {
 		ec.evictLRU()
 	}
 
-	ec.cache[key] = CachedEmbedding{
-		Embedding:   embedding,
-		CreatedAt:   time.Now(),
-		AccessedAt:  time.Now(),
-		AccessCount: 1,
+	elem := ec.lru.PushFront(&cacheEntry{
+		key: key,
+		value: CachedEmbedding{
+			Embedding:   embedding,
+			CreatedAt:   time.Now(),
+			AccessedAt:  time.Now(),
+			AccessCount: 1,
+		},
+	})
+	ec.items[key] = elem
+}
+
+// evictLRU evicts the least recently used item (the back of the list) in O(1).
+func (ec *EmbeddingCache) evictLRU() {
+	elem := ec.lru.Back()
+	if elem != nil {
+		ec.removeElement(elem)
+		ec.evictedCount.Add(1)
 	}
 }
 
-// evictLRU evicts the least recently used item
-func (ec *EmbeddingCache) evictLRU() {
-	var oldestKey string
-	var oldestTime time.Time
-
-	for key, cached := range ec.cache {
-		if oldestKey == "" || cached.AccessedAt.Before(oldestTime) {
-			oldestKey = key
-			oldestTime = cached.AccessedAt
-		}
-	}
-
-	if oldestKey != "" {
-		delete(ec.cache, oldestKey)
-		ec.evictedCount++ // Track evictions
-	}
+// removeElement removes a list element and its map entry. Caller holds ec.mu.
+func (ec *EmbeddingCache) removeElement(elem *list.Element) {
+	ec.lru.Remove(elem)
+	delete(ec.items, elem.Value.(*cacheEntry).key)
 }
 
 // GetStats returns cache statistics
 func (ec *EmbeddingCache) GetStats() *CacheStats {
-	ec.mu.RLock()
-	defer ec.mu.RUnlock()
+	hits := ec.hits.Load()
+	misses := ec.misses.Load()
 
-	total := ec.hits + ec.misses
+	total := hits + misses
 	hitRate := 0.0
 	if total > 0 {
-		hitRate = float64(ec.hits) / float64(total)
+		hitRate = float64(hits) / float64(total)
 	}
 
+	ec.mu.Lock()
+	size := len(ec.items)
+	ec.mu.Unlock()
+
 	return &CacheStats{
-		Size:         len(ec.cache),
-		Hits:         ec.hits,
-		Misses:       ec.misses,
+		Size:         size,
+		Hits:         hits,
+		Misses:       misses,
 		HitRate:      hitRate,
-		EvictedCount: ec.evictedCount,
+		EvictedCount: ec.evictedCount.Load(),
 	}
 }
 
@@ -427,10 +461,11 @@ func (ec *EmbeddingCache) Clear() {
 	ec.mu.Lock()
 	defer ec.mu.Unlock()
 
-	ec.cache = make(map[string]CachedEmbedding)
-	ec.hits = 0
-	ec.misses = 0
-	ec.evictedCount = 0
+	ec.items = make(map[string]*list.Element)
+	ec.lru.Init()
+	ec.hits.Store(0)
+	ec.misses.Store(0)
+	ec.evictedCount.Store(0)
 }
 
 // OpenAIEmbeddingProvider implements EmbeddingProvider using OpenAI

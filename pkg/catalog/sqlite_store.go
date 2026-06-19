@@ -21,11 +21,18 @@ type SQLiteStore struct {
 
 // NewSQLiteStore creates a new SQLite catalog store
 func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
+	// WAL + a busy timeout let concurrent catalog readers run in parallel and
+	// the occasional writer wait for a lock instead of failing with
+	// "database is locked"; the pool was previously left at Go's unbounded
+	// default against a single SQLite file. Mirrors pkg/storage/sqlite_local.go.
 	dbPath := filepath.Join(dataDir, "catalog.db")
-	db, err := sql.Open("sqlite3", dbPath+"?_fk=1")
+	db, err := sql.Open("sqlite3", dbPath+"?_fk=1&_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		return nil, fmt.Errorf("open catalog db: %w", err)
 	}
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	store := &SQLiteStore{db: db, path: dbPath}
 	return store, nil
