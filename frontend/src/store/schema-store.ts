@@ -9,6 +9,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 import { api } from '@/lib/api-client'
+import type { RawFullSchema } from '@/lib/api-client/types'
 
 export interface SchemaNode {
   id: string
@@ -245,6 +246,200 @@ const formatColumnName = (column: NormalizedColumnInfo): string => {
   return formattedName
 }
 
+/**
+ * Build the SchemaNode tree from the batched `GetConnectionSchemaFull` payload.
+ * Mirrors the per-table mapping of the waterfall path (columns + foreign keys),
+ * grouping the flat `structures` list by schema. Empty schemas are skipped.
+ */
+const buildSchemaNodesFromFull = (data: RawFullSchema): SchemaNode[] => {
+  type Structure = RawFullSchema['structures'][number]
+  const bySchema = new Map<string, Structure[]>()
+  for (const st of data.structures) {
+    const schemaName = st.table?.schema
+    if (!schemaName) continue
+    const arr = bySchema.get(schemaName) ?? []
+    arr.push(st)
+    bySchema.set(schemaName, arr)
+  }
+
+  // Preserve the server's schema order, then append any schema only seen in
+  // structures (defensive — shouldn't happen).
+  const orderedSchemas = [...data.schemas]
+  for (const s of bySchema.keys()) {
+    if (!orderedSchemas.includes(s)) orderedSchemas.push(s)
+  }
+
+  const nodes: SchemaNode[] = []
+  for (const schemaName of orderedSchemas) {
+    const structures = bySchema.get(schemaName)
+    if (!structures || structures.length === 0) continue // skip empty schemas
+
+    const schemaNode: SchemaNode = {
+      id: schemaName,
+      name: schemaName,
+      type: 'schema',
+      expanded: schemaName === 'public',
+      children: structures.map((st, tableIndex) => {
+        const tableName = st.table.name
+        const tableId = `${schemaName}.${tableName}.${tableIndex}`
+        const tableNode: SchemaNode = {
+          id: tableId,
+          name: tableName,
+          type: 'table',
+          children: [],
+          metadata: {
+            rowCount: st.table.rowCount,
+            sizeBytes: st.table.sizeBytes,
+            comment: st.table.comment,
+          },
+        }
+
+        const normalizedForeignKeys = normalizeForeignKeys(
+          st.foreign_keys as RawForeignKeyInfo[] | undefined,
+          schemaName,
+          tableName
+        )
+
+        const foreignKeyByColumn = new Map<string, NormalizedForeignKeyInfo>()
+        normalizedForeignKeys.forEach((fk) => {
+          if (!foreignKeyByColumn.has(fk.columnName)) {
+            foreignKeyByColumn.set(fk.columnName, fk)
+          }
+        })
+
+        tableNode.children = (st.columns as unknown as RawColumnInfo[]).map(
+          (columnInfo: RawColumnInfo, columnIndex: number) => {
+            const normalizedColumn = normalizeColumnInfo(columnInfo, {
+              foreignKey: foreignKeyByColumn.get(columnInfo.name),
+            })
+
+            return {
+              id: `${tableId}.${columnInfo.name}.${columnIndex}`,
+              name: formatColumnName(normalizedColumn),
+              type: 'column' as const,
+              metadata: normalizedColumn.metadata ?? normalizedColumn,
+            }
+          }
+        )
+
+        if (normalizedForeignKeys.length > 0) {
+          tableNode.metadata = {
+            ...(tableNode.metadata || {}),
+            foreignKeys: normalizedForeignKeys,
+          }
+        }
+
+        return tableNode
+      }),
+    }
+
+    nodes.push(schemaNode)
+  }
+
+  return nodes
+}
+
+/**
+ * Legacy waterfall: databases -> tables -> columns. Used in web/REST mode where
+ * the batched `api.schema.full` binding is unavailable. Schemas fetch concurrently.
+ */
+const buildSchemaNodesWaterfall = async (sessionId: string): Promise<SchemaNode[]> => {
+  const schemasResponse = await api.schema.databases(sessionId)
+
+  if (!schemasResponse.success || !schemasResponse.data) {
+    throw new Error(schemasResponse.message || 'Failed to fetch schemas')
+  }
+
+  const schemaNodeResults = await Promise.all(
+    schemasResponse.data.map(async (schemaInfo): Promise<SchemaNode | null> => {
+      const schemaNode: SchemaNode = {
+        id: schemaInfo.name,
+        name: schemaInfo.name,
+        type: 'schema',
+        expanded: schemaInfo.name === 'public',
+        children: [],
+      }
+
+      const tablesResponse = await api.schema.tables(sessionId, schemaInfo.name)
+
+      if (tablesResponse.success && tablesResponse.data) {
+        schemaNode.children = await Promise.all(
+          tablesResponse.data.map(async (tableInfo: RawTableInfo, tableIndex: number) => {
+            const tableId = `${schemaInfo.name}.${tableInfo.name}.${tableIndex}`
+            const tableNode: SchemaNode = {
+              id: tableId,
+              name: tableInfo.name,
+              type: 'table',
+              children: [],
+              metadata: {
+                rowCount: tableInfo.rowCount,
+                sizeBytes: tableInfo.sizeBytes,
+                comment: tableInfo.comment,
+              },
+            }
+
+            try {
+              const columnsResponse = await api.schema.columns(
+                sessionId,
+                schemaInfo.name,
+                tableInfo.name
+              )
+
+              if (columnsResponse.success && columnsResponse.data) {
+                const normalizedForeignKeys = normalizeForeignKeys(
+                  columnsResponse.foreignKeys as RawForeignKeyInfo[] | undefined,
+                  schemaInfo.name,
+                  tableInfo.name
+                )
+
+                const foreignKeyByColumn = new Map<string, NormalizedForeignKeyInfo>()
+                normalizedForeignKeys.forEach((fk) => {
+                  if (!foreignKeyByColumn.has(fk.columnName)) {
+                    foreignKeyByColumn.set(fk.columnName, fk)
+                  }
+                })
+
+                tableNode.children = (columnsResponse.data as unknown as RawColumnInfo[]).map(
+                  (columnInfo: RawColumnInfo, columnIndex: number) => {
+                    const normalizedColumn = normalizeColumnInfo(columnInfo, {
+                      foreignKey: foreignKeyByColumn.get(columnInfo.name),
+                    })
+
+                    return {
+                      id: `${tableId}.${columnInfo.name}.${columnIndex}`,
+                      name: formatColumnName(normalizedColumn),
+                      type: 'column' as const,
+                      metadata: normalizedColumn.metadata ?? normalizedColumn,
+                    }
+                  }
+                )
+
+                if (normalizedForeignKeys.length > 0) {
+                  tableNode.metadata = {
+                    ...(tableNode.metadata || {}),
+                    foreignKeys: normalizedForeignKeys,
+                  }
+                }
+              }
+            } catch (err) {
+              console.error(`Failed to fetch columns for ${tableInfo.name}:`, err)
+            }
+
+            return tableNode
+          })
+        )
+      }
+
+      if (schemaNode.children && schemaNode.children.length > 0) {
+        return schemaNode
+      }
+      return null
+    })
+  )
+
+  return schemaNodeResults.filter((n): n is SchemaNode => n !== null)
+}
+
 export const useSchemaStore = create<SchemaStoreState>()(
   persist(
     (set, get) => ({
@@ -288,116 +483,19 @@ export const useSchemaStore = create<SchemaStoreState>()(
               })()
             }))
 
-            // Fetch schemas/databases
-            const schemasResponse = await api.schema.databases(sessionId)
-
-            if (!schemasResponse.success || !schemasResponse.data) {
-              throw new Error(schemasResponse.message || 'Failed to fetch schemas')
+            // Prefer the batched backend call (one IPC round-trip) when the
+            // platform exposes it (Wails desktop). Web/REST mode falls back to
+            // the databases -> tables -> columns waterfall.
+            let schemaNodes: SchemaNode[]
+            if (typeof api.schema.full === 'function') {
+              const fullResponse = await api.schema.full(sessionId)
+              if (!fullResponse.success || !fullResponse.data) {
+                throw new Error(fullResponse.message || 'Failed to fetch schema')
+              }
+              schemaNodes = buildSchemaNodesFromFull(fullResponse.data)
+            } else {
+              schemaNodes = await buildSchemaNodesWaterfall(sessionId)
             }
-
-            // Fetch every schema's tables (and their columns) concurrently
-            // instead of one schema at a time — the previous sequential loop was
-            // a databases->tables->columns waterfall. Promise.all preserves order.
-            const schemaNodeResults = await Promise.all(
-              schemasResponse.data.map(async (schemaInfo): Promise<SchemaNode | null> => {
-              const schemaNode: SchemaNode = {
-                id: schemaInfo.name,
-                name: schemaInfo.name,
-                type: 'schema',
-                expanded: schemaInfo.name === 'public', // Expand 'public' by default
-                children: []
-              }
-
-              // Fetch tables for this schema
-              const tablesResponse = await api.schema.tables(
-                sessionId,
-                schemaInfo.name
-              )
-
-              if (tablesResponse.success && tablesResponse.data) {
-                schemaNode.children = await Promise.all(
-                  tablesResponse.data.map(async (tableInfo: RawTableInfo, tableIndex: number) => {
-                    const tableId = `${schemaInfo.name}.${tableInfo.name}.${tableIndex}`
-                    const tableNode: SchemaNode = {
-                      id: tableId,
-                      name: tableInfo.name,
-                      type: 'table',
-                      children: [],
-                      metadata: {
-                        rowCount: tableInfo.rowCount,
-                        sizeBytes: tableInfo.sizeBytes,
-                        comment: tableInfo.comment
-                      }
-                    }
-
-                    // Fetch columns for this table
-                    try {
-                      const columnsResponse = await api.schema.columns(
-                        sessionId,
-                        schemaInfo.name,
-                        tableInfo.name
-                      )
-
-                      if (columnsResponse.success && columnsResponse.data) {
-                        const normalizedForeignKeys = normalizeForeignKeys(
-                          columnsResponse.foreignKeys as RawForeignKeyInfo[] | undefined,
-                          schemaInfo.name,
-                          tableInfo.name
-                        )
-
-                        console.log(`[SchemaStore] 🔍 Table: ${schemaInfo.name}.${tableInfo.name}`, {
-                          columnsCount: columnsResponse.data.length,
-                          rawForeignKeys: columnsResponse.foreignKeys,
-                          normalizedFKs: normalizedForeignKeys,
-                          fkCount: normalizedForeignKeys.length
-                        })
-
-                        const foreignKeyByColumn = new Map<string, NormalizedForeignKeyInfo>()
-                        normalizedForeignKeys.forEach(fk => {
-                          if (!foreignKeyByColumn.has(fk.columnName)) {
-                            foreignKeyByColumn.set(fk.columnName, fk)
-                          }
-                        })
-
-                        tableNode.children = (columnsResponse.data as unknown as RawColumnInfo[]).map((columnInfo: RawColumnInfo, columnIndex: number) => {
-                          const normalizedColumn = normalizeColumnInfo(columnInfo, {
-                            foreignKey: foreignKeyByColumn.get(columnInfo.name)
-                          })
-
-                          return {
-                            id: `${tableId}.${columnInfo.name}.${columnIndex}`,
-                            name: formatColumnName(normalizedColumn),
-                            type: 'column' as const,
-                            metadata: normalizedColumn.metadata ?? normalizedColumn
-                          }
-                        })
-
-                        if (normalizedForeignKeys.length > 0) {
-                          tableNode.metadata = {
-                            ...(tableNode.metadata || {}),
-                            foreignKeys: normalizedForeignKeys
-                          }
-                        }
-                      }
-                    } catch (err) {
-                      console.error(`Failed to fetch columns for ${tableInfo.name}:`, err)
-                    }
-
-                    return tableNode
-                  })
-                )
-              }
-
-              // Skip empty schemas
-              if (schemaNode.children && schemaNode.children.length > 0) {
-                return schemaNode
-              }
-              return null
-              })
-            )
-            const schemaNodes: SchemaNode[] = schemaNodeResults.filter(
-              (n): n is SchemaNode => n !== null
-            )
 
             // Update cache
             set((state) => {

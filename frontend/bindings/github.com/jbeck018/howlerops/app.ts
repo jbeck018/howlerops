@@ -52,6 +52,7 @@ const servicePrefixesByMethod: Record<string, readonly string[]> = {
   GetAvailableModels: ['main.WailsAIService'],
   GetCatalogStats: ['main.CatalogService'],
   GetConnectionHealth: ['main.ConnectionService'],
+  GetConnectionSchemaFull: ['main.QueryService'],
   GetConnectionStats: ['main.ConnectionService'],
   GetCurrentVersion: ['main.UpdateService'],
   GetDatabaseSchema: ['main.QueryService'],
@@ -201,6 +202,7 @@ export const GenericChat = makeBinding('GenericChat')
 export const GetAvailableModels = makeBinding('GetAvailableModels')
 export const GetCatalogStats = makeBinding('GetCatalogStats')
 export const GetConnectionHealth = makeBinding('GetConnectionHealth')
+export const GetConnectionSchemaFull = makeBinding('GetConnectionSchemaFull')
 export const GetConnectionStats = makeBinding('GetConnectionStats')
 export const GetCurrentVersion = makeBinding('GetCurrentVersion')
 export const GetDatabaseSchema = makeBinding('GetDatabaseSchema')

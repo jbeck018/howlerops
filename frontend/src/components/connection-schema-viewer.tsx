@@ -136,11 +136,12 @@ export function ConnectionSchemaViewer({ connectionId, onClose }: ConnectionSche
       }
       const list = (res?.databases ?? []) as string[]
       // Fall back to the connection's configured database if none were returned.
-      const names = list.length > 0 ? list : (connection.database ? [connection.database] : [])
+      const configuredDb = connection?.database
+      const names = list.length > 0 ? list : (configuredDb ? [configuredDb] : [])
       setDatabases(names)
 
       // Auto-open and load the connection's current database (or the first).
-      const initial = connection.database && names.includes(connection.database) ? connection.database : names[0]
+      const initial = configuredDb && names.includes(configuredDb) ? configuredDb : names[0]
       if (initial) {
         setOpenDatabases(new Set([initial]))
         void loadDatabaseSchema(initial)

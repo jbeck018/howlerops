@@ -148,6 +148,36 @@ export class WailsApiClient {
     }
   }
 
+  // Batched introspection: schemas + tables + per-table structure in one IPC
+  // round-trip, replacing the databases -> tables -> columns waterfall.
+  async getConnectionSchemaFull(connectionId: string) {
+    try {
+      await waitForWails()
+
+      if (!isWailsReady()) {
+        throw new Error('Wails runtime not available')
+      }
+
+      const full = await App.GetConnectionSchemaFull(connectionId)
+
+      return {
+        data: {
+          schemas: full?.schemas || [],
+          tables: full?.tables || [],
+          structures: full?.structures || [],
+        },
+        success: true,
+        message: 'Schema retrieved successfully',
+      }
+    } catch (error) {
+      return {
+        data: null,
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to fetch full schema',
+      }
+    }
+  }
+
   // Connection methods
   async createConnection(data: unknown) {
     try {
@@ -804,6 +834,10 @@ export const wailsEndpoints = {
 
     columns: async (connectionId: string, schemaName: string, tableName: string) => {
       return wailsApiClient.getTableStructure(connectionId, schemaName, tableName)
+    },
+
+    full: async (connectionId: string) => {
+      return wailsApiClient.getConnectionSchemaFull(connectionId)
     }
   }
 }

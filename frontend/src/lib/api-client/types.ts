@@ -278,6 +278,35 @@ export interface TableStructureResult {
   message?: string
 }
 
+/**
+ * Raw payload of the batched schema endpoint (`GetConnectionSchemaFull`). Fields
+ * mirror the Go `FullDatabaseSchema` DTO json tags; columns/foreign_keys stay in
+ * the backend's snake_case shape, which the schema-store normalizers accept.
+ */
+export interface RawFullSchema {
+  schemas: string[]
+  tables: Array<Record<string, unknown>>
+  structures: Array<{
+    table: {
+      schema: string
+      name: string
+      rowCount?: number
+      sizeBytes?: number
+      comment?: string
+      [key: string]: unknown
+    }
+    columns: Array<Record<string, unknown>>
+    foreign_keys?: unknown[]
+    [key: string]: unknown
+  }>
+}
+
+export interface FullSchemaResult {
+  data: RawFullSchema | null
+  success: boolean
+  message?: string
+}
+
 // ==========================================
 // API Client Interface
 // ==========================================
@@ -313,6 +342,12 @@ export interface ApiClient {
     databases: (connectionId: string) => Promise<ApiResponse<SchemaInfo[]>>
     tables: (connectionId: string, schemaName?: string) => Promise<ApiResponse<TableInfo[]>>
     columns: (connectionId: string, schemaName: string, tableName: string) => Promise<TableStructureResult>
+    /**
+     * Batched introspection: schemas + tables + per-table structure in one call.
+     * Optional — only the Wails (desktop) client implements it; web/REST mode
+     * falls back to the databases -> tables -> columns path.
+     */
+    full?: (connectionId: string) => Promise<FullSchemaResult>
   }
 }
 

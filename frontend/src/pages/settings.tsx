@@ -23,8 +23,8 @@ import { useTheme } from "@/hooks/use-theme"
 import { useToast } from "@/hooks/use-toast"
 import { PreferenceCategory,PreferenceRepository } from '@/lib/storage/repositories/preference-repository'
 import { useAIConfig } from "@/store/ai-store"
-import { useConnectionsStore } from "@/store/connections-store"
 import { useOrganizationStore } from "@/store/organization-store"
+import { useConnections } from "@/store/use-connections"
 
 const prefRepo = new PreferenceRepository()
 const DEVICE_USER = 'local-user'
@@ -86,7 +86,7 @@ export function Settings() {
 
   // Organization state for Team Sharing card
   const { currentOrgId, organizations } = useOrganizationStore()
-  const { sharedConnections } = useConnectionsStore()
+  const { sharedConnections } = useConnections()
   const currentOrg = organizations.find((o) => o.id === currentOrgId)
 
   // AI Configuration
