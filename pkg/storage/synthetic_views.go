@@ -280,18 +280,29 @@ func (s *SyntheticViewStorage) viewExists(id string) (bool, error) {
 
 // GetSyntheticSchema returns the schema information for synthetic views
 func (s *SyntheticViewStorage) GetSyntheticSchema() (map[string]interface{}, error) {
-	views, err := s.ListSyntheticViews()
+	// Single query for every view's name + definition, unmarshalling columns in
+	// Go. Previously this listed views then re-queried each one (a 1+N N+1).
+	query := `SELECT name, definition FROM synthetic_views ORDER BY updated_at DESC`
+	rows, err := s.db.Query(query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list synthetic views: %w", err)
+		return nil, fmt.Errorf("failed to query synthetic views: %w", err)
 	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			s.logger.WithError(err).Error("Failed to close rows")
+		}
+	}()
 
-	// Convert to schema format
 	var schemaViews []map[string]interface{}
-	for _, view := range views {
-		// Get full view definition to extract columns
-		viewDef, err := s.GetSyntheticView(view.ID)
-		if err != nil {
-			s.logger.WithError(err).WithField("view_id", view.ID).Warn("Failed to get view definition for schema")
+	for rows.Next() {
+		var name, definition string
+		if err := rows.Scan(&name, &definition); err != nil {
+			return nil, fmt.Errorf("failed to scan synthetic view: %w", err)
+		}
+
+		var viewDef ViewDefinition
+		if err := json.Unmarshal([]byte(definition), &viewDef); err != nil {
+			s.logger.WithError(err).WithField("view", name).Warn("Failed to unmarshal view definition for schema")
 			continue
 		}
 
@@ -306,10 +317,14 @@ func (s *SyntheticViewStorage) GetSyntheticSchema() (map[string]interface{}, err
 		}
 
 		schemaViews = append(schemaViews, map[string]interface{}{
-			"name":     view.Name,
+			"name":     name,
 			"columns":  columns,
 			"readOnly": true,
 		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
 
 	return map[string]interface{}{

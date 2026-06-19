@@ -1,6 +1,7 @@
 package rag
 
 import (
+	"container/heap"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -17,6 +18,31 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 )
+
+// scoredDoc pairs a document with its similarity score for top-k selection.
+type scoredDoc struct {
+	doc   *Document
+	score float32
+}
+
+// minScoreHeap is a min-heap of scoredDoc (smallest score at the root). It lets
+// brute-force vector search retain only the top-k highest-scoring documents
+// while streaming rows, bounding memory by k instead of the whole corpus.
+type minScoreHeap []scoredDoc
+
+func (h minScoreHeap) Len() int           { return len(h) }
+func (h minScoreHeap) Less(i, j int) bool { return h[i].score < h[j].score }
+func (h minScoreHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *minScoreHeap) Push(x interface{}) {
+	*h = append(*h, x.(scoredDoc))
+}
+func (h *minScoreHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	item := old[n-1]
+	*h = old[:n-1]
+	return item
+}
 
 // initSchema is the embedded migration SQL for creating vector store tables
 const initSchema = `
@@ -173,6 +199,13 @@ func NewSQLiteVectorStore(config *SQLiteVectorConfig, logger *logrus.Logger) (*S
 			logger.WithError(err).Warnf("Failed to set pragma: %s", pragma)
 		}
 	}
+
+	// Bound the connection pool (was Go's unbounded default against a single
+	// SQLite file). WAL + busy_timeout allow concurrent readers with an
+	// occasional waiting writer.
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	// Initialize RRF configuration with defaults
 	rrfConstant := config.RRFConstant
@@ -803,12 +836,9 @@ func (s *SQLiteVectorStore) searchSimilarBruteForce(ctx context.Context, embeddi
 		}
 	}()
 
-	// Calculate similarities
-	type docWithScore struct {
-		doc   *Document
-		score float32
-	}
-	var results []docWithScore
+	// Calculate similarities, retaining only the top-k as we stream so memory is
+	// bounded by k rather than the full embeddings table.
+	topK := &minScoreHeap{}
 
 	for rows.Next() {
 		var id, connID, docType, content, metadataStr string
@@ -856,20 +886,25 @@ func (s *SQLiteVectorStore) searchSimilarBruteForce(ctx context.Context, embeddi
 			doc.Summary = summary.String
 		}
 
-		results = append(results, docWithScore{doc: doc, score: similarity})
+		// k <= 0 yields no results (matches the previous results[:k] semantics).
+		if k <= 0 {
+			continue
+		}
+		if topK.Len() < k {
+			heap.Push(topK, scoredDoc{doc: doc, score: similarity})
+		} else if similarity > (*topK)[0].score {
+			// Replace the current lowest-scoring kept document.
+			heap.Pop(topK)
+			heap.Push(topK, scoredDoc{doc: doc, score: similarity})
+		}
 	}
 
-	// Sort by score (descending)
+	// Sort the retained top-k by score (descending) for the final result.
+	results := *topK
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].score > results[j].score
 	})
 
-	// Limit to top k
-	if len(results) > k {
-		results = results[:k]
-	}
-
-	// Extract documents
 	docs := make([]*Document, len(results))
 	for i, r := range results {
 		docs[i] = r.doc

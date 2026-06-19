@@ -960,18 +960,26 @@ func (m *MySQLDatabase) getTableIndexes(ctx context.Context, db *sql.DB, schema,
 }
 
 func (m *MySQLDatabase) getTableForeignKeys(ctx context.Context, db *sql.DB, schema, table string) ([]ForeignKeyInfo, error) {
+	// JOIN referential_constraints so the delete/update rules come back in the
+	// same pass — previously this issued a separate QueryRowContext per FK (an
+	// N+1 that also borrowed a second pool connection mid-iteration).
 	query := `
 		SELECT
-			constraint_name,
-			GROUP_CONCAT(column_name ORDER BY ordinal_position) as columns,
-			referenced_table_name,
-			referenced_table_schema,
-			GROUP_CONCAT(referenced_column_name ORDER BY ordinal_position) as referenced_columns
-		FROM information_schema.key_column_usage
-		WHERE table_schema = ? AND table_name = ?
-		AND referenced_table_name IS NOT NULL
-		GROUP BY constraint_name, referenced_table_name, referenced_table_schema
-		ORDER BY constraint_name`
+			kcu.constraint_name,
+			GROUP_CONCAT(kcu.column_name ORDER BY kcu.ordinal_position) as columns,
+			kcu.referenced_table_name,
+			kcu.referenced_table_schema,
+			GROUP_CONCAT(kcu.referenced_column_name ORDER BY kcu.ordinal_position) as referenced_columns,
+			rc.delete_rule,
+			rc.update_rule
+		FROM information_schema.key_column_usage kcu
+		LEFT JOIN information_schema.referential_constraints rc
+			ON rc.constraint_schema = kcu.table_schema
+			AND rc.constraint_name = kcu.constraint_name
+		WHERE kcu.table_schema = ? AND kcu.table_name = ?
+		AND kcu.referenced_table_name IS NOT NULL
+		GROUP BY kcu.constraint_name, kcu.referenced_table_name, kcu.referenced_table_schema, rc.delete_rule, rc.update_rule
+		ORDER BY kcu.constraint_name`
 
 	rows, err := db.QueryContext(ctx, query, schema, table)
 	if err != nil {
@@ -987,6 +995,7 @@ func (m *MySQLDatabase) getTableForeignKeys(ctx context.Context, db *sql.DB, sch
 	for rows.Next() {
 		var fk ForeignKeyInfo
 		var columns, refColumns string
+		var deleteRule, updateRule sql.NullString
 
 		err := rows.Scan(
 			&fk.Name,
@@ -994,6 +1003,8 @@ func (m *MySQLDatabase) getTableForeignKeys(ctx context.Context, db *sql.DB, sch
 			&fk.ReferencedTable,
 			&fk.ReferencedSchema,
 			&refColumns,
+			&deleteRule,
+			&updateRule,
 		)
 		if err != nil {
 			return nil, err
@@ -1006,17 +1017,14 @@ func (m *MySQLDatabase) getTableForeignKeys(ctx context.Context, db *sql.DB, sch
 			fk.ReferencedColumns = strings.Split(refColumns, ",")
 		}
 
-		// Get referential actions
-		actionQuery := `
-			SELECT delete_rule, update_rule
-			FROM information_schema.referential_constraints
-			WHERE constraint_schema = ? AND constraint_name = ?`
-
-		err = db.QueryRowContext(ctx, actionQuery, schema, fk.Name).Scan(&fk.OnDelete, &fk.OnUpdate)
-		if err != nil {
-			// Set defaults if query fails
-			fk.OnDelete = "RESTRICT"
-			fk.OnUpdate = "RESTRICT"
+		// Default referential actions to RESTRICT when not reported.
+		fk.OnDelete = "RESTRICT"
+		fk.OnUpdate = "RESTRICT"
+		if deleteRule.Valid && deleteRule.String != "" {
+			fk.OnDelete = deleteRule.String
+		}
+		if updateRule.Valid && updateRule.String != "" {
+			fk.OnUpdate = updateRule.String
 		}
 
 		foreignKeys = append(foreignKeys, fk)

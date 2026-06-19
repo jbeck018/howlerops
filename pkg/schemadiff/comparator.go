@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/jbeck018/howlerops/pkg/database"
 )
@@ -78,23 +81,43 @@ func (c *Comparator) captureSnapshot(ctx context.Context, db database.Database, 
 	}
 	snapshot.Schemas = schemas
 
-	// Get tables for each schema
+	// Get tables for each schema (one query per schema).
+	type tableRef struct{ schema, table string }
+	var refs []tableRef
 	for _, schema := range schemas {
 		tables, err := db.GetTables(ctx, schema)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get tables for schema %s: %w", schema, err)
 		}
 		snapshot.Tables[schema] = tables
-
-		// Get structure for each table
 		for _, table := range tables {
-			structure, err := db.GetTableStructure(ctx, schema, table.Name)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get structure for table %s.%s: %w", schema, table.Name, err)
-			}
-			key := fmt.Sprintf("%s.%s", schema, table.Name)
-			snapshot.Structures[key] = structure
+			refs = append(refs, tableRef{schema: schema, table: table.Name})
 		}
+	}
+
+	// Capture each table's structure concurrently with bounded parallelism. This
+	// is the expensive step — every call issues several introspection queries —
+	// and it was previously fully serial (an N+1 over every table). Each call
+	// borrows its own pooled connection, so concurrent introspection is safe.
+	var mu sync.Mutex
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(8)
+	for _, ref := range refs {
+		ref := ref
+		g.Go(func() error {
+			structure, err := db.GetTableStructure(gctx, ref.schema, ref.table)
+			if err != nil {
+				return fmt.Errorf("failed to get structure for table %s.%s: %w", ref.schema, ref.table, err)
+			}
+			key := fmt.Sprintf("%s.%s", ref.schema, ref.table)
+			mu.Lock()
+			snapshot.Structures[key] = structure
+			mu.Unlock()
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 
 	return snapshot, nil
