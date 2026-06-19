@@ -295,10 +295,11 @@ export const useSchemaStore = create<SchemaStoreState>()(
               throw new Error(schemasResponse.message || 'Failed to fetch schemas')
             }
 
-            const schemaNodes: SchemaNode[] = []
-
-            // For each schema, fetch tables
-            for (const schemaInfo of schemasResponse.data) {
+            // Fetch every schema's tables (and their columns) concurrently
+            // instead of one schema at a time — the previous sequential loop was
+            // a databases->tables->columns waterfall. Promise.all preserves order.
+            const schemaNodeResults = await Promise.all(
+              schemasResponse.data.map(async (schemaInfo): Promise<SchemaNode | null> => {
               const schemaNode: SchemaNode = {
                 id: schemaInfo.name,
                 name: schemaInfo.name,
@@ -389,9 +390,14 @@ export const useSchemaStore = create<SchemaStoreState>()(
 
               // Skip empty schemas
               if (schemaNode.children && schemaNode.children.length > 0) {
-                schemaNodes.push(schemaNode)
+                return schemaNode
               }
-            }
+              return null
+              })
+            )
+            const schemaNodes: SchemaNode[] = schemaNodeResults.filter(
+              (n): n is SchemaNode => n !== null
+            )
 
             // Update cache
             set((state) => {
