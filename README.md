@@ -77,20 +77,24 @@ curl -fsSL https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh
 curl -fsSL https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh | sh -s -- --verbose
 ```
 
-**Supported platforms:**
-- macOS (Intel & Apple Silicon)
-- Linux (x86_64, ARM64, ARM)
-- Windows (via Git Bash or WSL)
+**What `install.sh` installs per platform:**
+- **macOS, Apple Silicon (arm64)** — the `HowlerOps.app` desktop app
+- **Linux (x86_64 / arm64)** — the `howlerops` CLI
 
-📖 **[Full installation guide](docs/INSTALLATION.md)** | 📋 **[Quick reference](INSTALL_QUICK_REFERENCE.md)**
+> **Not currently published:** Intel (amd64) macOS builds and native Windows
+> binaries. On Windows, use **WSL** (Linux CLI) or **build from source**. Intel
+> macOS support can be restored by re-enabling the amd64 build matrix entries in
+> `.github/workflows/release.yml`.
+
+📖 **[Full installation guide](docs/INSTALLATION.md)** | 📋 **[Quick reference](docs/INSTALL_QUICK_REFERENCE.md)**
 
 ### Alternative Methods
 
-- **Homebrew** (coming soon): follow release notes for tap/package updates
 - **Direct Download**: [Latest Release](https://github.com/howlerops/howlerops/releases/latest)
 - **Build from Source**: See [Development](#development) section below
+- **Homebrew** (not yet available): a cask is planned but not currently published
 
-For detailed installation instructions, platform-specific guides, and troubleshooting, see [INSTALL.md](INSTALL.md).
+For detailed installation instructions, platform-specific guides, and troubleshooting, see [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Quick Start
 

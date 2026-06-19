@@ -700,7 +700,15 @@ EOF
     # Download archive
     log "Downloading HowlerOps ${VERSION}..."
     if ! download_file "$archive_url" "$archive"; then
-        fail "Failed to download HowlerOps. Please check:\n  - Version ${VERSION} exists\n  - Platform ${platform} is supported\n  - Network connection is working"
+        # curl exits 56 ("Failure writing output to destination") and wget fails
+        # similarly when the local write fails — almost always because the disk
+        # (or the temp volume that holds "$temp_dir") is full, not because the
+        # release or network is bad. Surface free space to make that obvious.
+        local avail=""
+        if command_exists df; then
+            avail="$(df -h "$temp_dir" 2>/dev/null | awk 'NR==2 {print $4 " free on " $NF}')"
+        fi
+        fail "Failed to download HowlerOps. Most likely the disk is full (the local write failed).\n  - Free disk space and try again${avail:+ (currently ${avail})}\n  - Or set TMPDIR to a volume with space: TMPDIR=/path/with/space sh install.sh\nOther things to check:\n  - Version ${VERSION} exists\n  - Platform ${platform} is supported\n  - Network connection is working"
     fi
 
     # Download checksums

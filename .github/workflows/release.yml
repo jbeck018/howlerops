@@ -130,8 +130,12 @@ jobs:
           ```
 
           **Manual Download:**
-          - **macOS desktop app**: `howlerops-darwin-arm64.tar.gz` (Apple Silicon) or `howlerops-darwin-amd64.tar.gz` (Intel) — contains `HowlerOps.app`
+          - **macOS desktop app** (Apple Silicon): `howlerops-darwin-arm64.tar.gz` — contains `HowlerOps.app`
           - **CLI (Linux)**: `howlerops-cli-linux-amd64.tar.gz` or `howlerops-cli-linux-arm64.tar.gz`
+          - **CLI (macOS, Apple Silicon)**: `howlerops-cli-darwin-arm64.tar.gz`
+
+          > Intel (amd64) macOS builds and Windows binaries are not currently
+          > published. On Windows, use WSL or build from source.
 
           ### Verification
 
@@ -151,12 +155,6 @@ jobs:
 
           # Run
           ./howlerops --version
-          ```
-
-          ### Docker Image
-
-          ```bash
-          docker pull gcr.io/howlerops-prod/howlerops-backend:v${{ steps.get_version.outputs.version }}
           ```
 
           ---
@@ -730,9 +728,16 @@ jobs:
     name: Update Homebrew Formula
     runs-on: ubuntu-latest
     needs: [create-release, build-binaries, build-howlerops, generate-checksums, validate-release]
-    # Skip this job if Homebrew token is not configured
-    # Run even if optional jobs (like build-docker) are skipped or failed
-    if: ${{ always() && needs.create-release.outputs.has_homebrew_token == 'true' && needs.build-howlerops.result == 'success' && needs.validate-release.result == 'success' }}
+    # Disabled: the Homebrew cask update fails on every release because the
+    # update script requires a `howlerops-darwin-universal.tar.gz` (or both an
+    # Intel AND an Apple Silicon desktop bundle), but the pipeline currently
+    # ships only the Apple Silicon (arm64) app — Intel builds are paused and no
+    # universal binary is produced. The cask itself also points at a universal
+    # asset that does not exist, so `brew install` could not work even if this
+    # job "succeeded". Re-enable (restore the has_homebrew_token condition and
+    # update scripts/update-homebrew-formula.sh + the cask) once a universal or
+    # arch-specific cask path is in place.
+    if: false
 
     permissions:
       contents: read
