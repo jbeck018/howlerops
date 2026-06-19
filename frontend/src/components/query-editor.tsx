@@ -1,5 +1,6 @@
 import { AlertCircle, Bug, ChevronDown, Database, HelpCircle, Layout, Loader2, MessageCircle, Network, Pencil, Play, Plug, Plus, Save,Sparkles, Square, Trash2, Wand2 } from "lucide-react"
 import { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
+import { useShallow } from "zustand/react/shallow"
 
 import { AIQueryTabView } from "@/components/ai-query-tab"
 import { AISchemaDisplay } from "@/components/ai-schema-display"
@@ -89,7 +90,16 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(({ mo
     isConnecting,
     activeEnvironmentFilter,
     setActiveConnection: setGlobalActiveConnection,
-  } = useConnectionStore()
+  } = useConnectionStore(
+    useShallow((state) => ({
+      activeConnection: state.activeConnection,
+      connections: state.connections,
+      connectToDatabase: state.connectToDatabase,
+      isConnecting: state.isConnecting,
+      activeEnvironmentFilter: state.activeEnvironmentFilter,
+      setActiveConnection: state.setActiveConnection,
+    }))
+  )
   const {
     tabs,
     activeTabId,

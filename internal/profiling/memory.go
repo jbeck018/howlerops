@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"runtime/pprof"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -17,9 +18,13 @@ type MemoryProfiler struct {
 	logger           *logrus.Logger
 	baselineStats    *runtime.MemStats
 	mu               sync.RWMutex
-	enabled          bool
+	enabled          atomic.Bool
 	samplingInterval time.Duration
 	alerts           []MemoryAlert
+
+	startOnce sync.Once
+	stopOnce  sync.Once
+	stopCh    chan struct{}
 }
 
 type MemoryStats struct {
@@ -57,10 +62,11 @@ type LeakDetection struct {
 func NewMemoryProfiler(logger *logrus.Logger) *MemoryProfiler {
 	profiler := &MemoryProfiler{
 		logger:           logger,
-		enabled:          true,
 		samplingInterval: 30 * time.Second,
 		alerts:           make([]MemoryAlert, 0),
+		stopCh:           make(chan struct{}),
 	}
+	profiler.enabled.Store(true)
 
 	// Capture baseline stats
 	profiler.baselineStats = &runtime.MemStats{}
@@ -69,9 +75,20 @@ func NewMemoryProfiler(logger *logrus.Logger) *MemoryProfiler {
 	return profiler
 }
 
-// Start begins periodic memory monitoring
+// Start begins periodic memory monitoring. It is safe to call more than once;
+// only the first call starts the monitor goroutine.
 func (p *MemoryProfiler) Start() {
-	go p.monitorMemory()
+	p.startOnce.Do(func() {
+		go p.monitorMemory()
+	})
+}
+
+// Stop terminates the monitor goroutine started by Start. Safe to call multiple
+// times and safe if Start was never called.
+func (p *MemoryProfiler) Stop() {
+	p.stopOnce.Do(func() {
+		close(p.stopCh)
+	})
 }
 
 // GetMemoryStats returns current memory statistics
@@ -179,8 +196,14 @@ func (p *MemoryProfiler) monitorMemory() {
 	lastGCCount := uint32(0)
 	lastCheckTime := time.Now()
 
-	for range ticker.C {
-		if !p.enabled {
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+		}
+
+		if !p.enabled.Load() {
 			continue
 		}
 
@@ -325,7 +348,5 @@ func (p *MemoryProfiler) ForceGC() *MemoryStats {
 
 // SetEnabled enables or disables monitoring
 func (p *MemoryProfiler) SetEnabled(enabled bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.enabled = enabled
+	p.enabled.Store(enabled)
 }

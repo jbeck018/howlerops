@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"sync"
 
 	"github.com/sirupsen/logrus"
 
@@ -27,7 +26,10 @@ type PasswordManager struct {
 	credentialStore   *turso.CredentialStore // Encrypted DB (new)
 	connectionStore   *turso.ConnectionStore // For migration status tracking
 	logger            *logrus.Logger
-	mu                sync.RWMutex
+	// No mutex: all fields are immutable after construction and the underlying
+	// keychain/Turso stores are themselves concurrency-safe. A mutex here would
+	// only serialize independent password operations behind each other's network
+	// and keychain latency.
 }
 
 // NewPasswordManager creates a new password manager with hybrid storage
@@ -51,9 +53,6 @@ func (pm *PasswordManager) GetPassword(
 	userID, connectionID string,
 	masterKey []byte,
 ) (string, error) {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-
 	// Priority 1: Try encrypted DB if master key is available
 	if masterKey != nil {
 		encryptedData, err := pm.credentialStore.GetCredential(ctx, userID, connectionID)
@@ -111,9 +110,6 @@ func (pm *PasswordManager) StorePassword(
 	userID, connectionID, password string,
 	masterKey []byte,
 ) error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
 	var keychainErr, encryptedErr error
 
 	// Strategy 1: Always store in keychain (backup during transition)
@@ -182,9 +178,6 @@ func (pm *PasswordManager) DeletePassword(
 	ctx context.Context,
 	userID, connectionID string,
 ) error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
 	var keychainErr, encryptedErr error
 
 	// Delete from keychain
@@ -234,9 +227,6 @@ func (pm *PasswordManager) GetMigrationStatus(
 	ctx context.Context,
 	connectionID string,
 ) (string, error) {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-
 	status, err := pm.connectionStore.GetMigrationStatus(ctx, connectionID)
 	if err != nil {
 		pm.logger.WithError(err).WithField("connection_id", connectionID).

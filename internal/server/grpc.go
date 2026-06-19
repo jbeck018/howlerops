@@ -28,11 +28,12 @@ import (
 
 // GRPCServer wraps the gRPC server with additional functionality
 type GRPCServer struct {
-	server   *grpc.Server
-	listener net.Listener
-	config   *config.Config
-	logger   *logrus.Logger
-	services *services.Services
+	server        *grpc.Server
+	listener      net.Listener
+	config        *config.Config
+	logger        *logrus.Logger
+	services      *services.Services
+	cancelCleanup context.CancelFunc
 }
 
 // NewGRPCServer creates a new gRPC server
@@ -116,12 +117,18 @@ func NewGRPCServer(cfg *config.Config, logger *logrus.Logger, services *services
 	// Initialize Prometheus metrics
 	grpc_prometheus.Register(server)
 
+	// Periodically prune idle per-IP rate limiters so the map doesn't grow
+	// unbounded for the life of the server. Cancelled in Stop().
+	cleanupCtx, cancelCleanup := context.WithCancel(context.Background())
+	go rateLimitMiddleware.CleanupExpiredLimiters(cleanupCtx)
+
 	return &GRPCServer{
-		server:   server,
-		listener: listener,
-		config:   cfg,
-		logger:   logger,
-		services: services,
+		server:        server,
+		listener:      listener,
+		config:        cfg,
+		logger:        logger,
+		services:      services,
+		cancelCleanup: cancelCleanup,
 	}, nil
 }
 
@@ -138,6 +145,11 @@ func (s *GRPCServer) Start() error {
 // Stop gracefully stops the gRPC server
 func (s *GRPCServer) Stop(ctx context.Context) error {
 	s.logger.Info("Stopping gRPC server")
+
+	// Stop the rate-limiter cleanup goroutine.
+	if s.cancelCleanup != nil {
+		s.cancelCleanup()
+	}
 
 	// Create a channel to signal when graceful stop is complete
 	done := make(chan struct{})

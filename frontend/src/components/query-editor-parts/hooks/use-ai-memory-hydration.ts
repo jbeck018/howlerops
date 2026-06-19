@@ -32,14 +32,4 @@ export function useAIMemoryHydration({
       syncAgentFromMemory()
     }
   }, [memoriesHydrated, agentHydrated, syncAgentFromMemory])
-
-  useEffect(() => {
-    if (!aiEnabled || !syncMemories) {
-      return
-    }
-
-    hydrateMemoriesFromBackend().catch((error) => {
-      console.error('Failed to hydrate AI memories:', error)
-    })
-  }, [aiEnabled, syncMemories, hydrateMemoriesFromBackend])
 }

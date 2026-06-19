@@ -265,6 +265,12 @@ func (lc *AppLifecycle) OnShutdown() {
 		lc.databaseService.Close()
 	}
 
+	// Stop the session-store cleanup goroutine + ticker (started in its
+	// constructor) so it doesn't leak past shutdown.
+	if lc.sessionStore != nil {
+		lc.sessionStore.Close()
+	}
+
 	lc.deps.emitEvent("app:shutdown", map[string]interface{}{"status": "shutdown"})
 }
 
