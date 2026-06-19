@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -168,7 +167,6 @@ func (m *MySQLDatabase) executeSelect(ctx context.Context, db *sql.DB, query str
 	trimmedQuery = strings.TrimSuffix(trimmedQuery, ";")
 
 	// Parse existing LIMIT clause (handles "LIMIT 1000" and "LIMIT 1000 OFFSET 500")
-	limitRegex := regexp.MustCompile(`(?i)\s+LIMIT\s+(\d+)(?:\s+OFFSET\s+(\d+))?`)
 	matches := limitRegex.FindStringSubmatch(trimmedQuery)
 
 	var userLimit int64

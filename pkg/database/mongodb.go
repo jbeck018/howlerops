@@ -25,16 +25,9 @@ type MongoDBDatabase struct {
 	client         *mongo.Client
 	config         ConnectionConfig
 	logger         *logrus.Logger
-	stats          mongoConnectionStats
+	stats          connectionStats
 	structureCache *tableStructureCache
 	mu             sync.RWMutex
-}
-
-// mongoConnectionStats tracks connection statistics for MongoDB
-type mongoConnectionStats struct {
-	requestCount  int64
-	errorCount    int64
-	lastRequestAt time.Time
 }
 
 // NewMongoDBDatabase creates a new MongoDB database instance
@@ -314,15 +307,14 @@ func (m *MongoDBDatabase) Execute(ctx context.Context, query string, args ...int
 // ExecuteWithOptions runs a MongoDB query with options and returns the results
 func (m *MongoDBDatabase) ExecuteWithOptions(ctx context.Context, query string, opts *QueryOptions, args ...interface{}) (*QueryResult, error) {
 	start := time.Now()
-	m.stats.requestCount++
-	m.stats.lastRequestAt = start
+	m.stats.recordRequest(start)
 
 	m.mu.RLock()
 	client := m.client
 	m.mu.RUnlock()
 
 	if client == nil {
-		m.stats.errorCount++
+		m.stats.recordError()
 		return &QueryResult{
 			Error:    fmt.Errorf("not connected to MongoDB"),
 			Duration: time.Since(start),
@@ -332,7 +324,7 @@ func (m *MongoDBDatabase) ExecuteWithOptions(ctx context.Context, query string, 
 	// Parse and execute query
 	result, err := m.parseAndExecute(ctx, client, query, opts, args...)
 	if err != nil {
-		m.stats.errorCount++
+		m.stats.recordError()
 		return &QueryResult{
 			Error:    err,
 			Duration: time.Since(start),

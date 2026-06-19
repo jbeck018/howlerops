@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -17,17 +18,21 @@ import (
 type RateLimitMiddleware struct {
 	limiters map[string]*rate.Limiter
 	mu       sync.RWMutex
-	rps      int
-	burst    int
+	// rps is atomic so AdaptiveRateLimiter can adjust it without sharing this
+	// type's mutex (it is read in checkRateLimit under r.mu but written from
+	// UpdateLoadFactor, which holds a different lock).
+	rps   atomic.Int64
+	burst int
 }
 
 // NewRateLimitMiddleware creates a new rate limit middleware
 func NewRateLimitMiddleware(rps, burst int) *RateLimitMiddleware {
-	return &RateLimitMiddleware{
+	m := &RateLimitMiddleware{
 		limiters: make(map[string]*rate.Limiter),
-		rps:      rps,
 		burst:    burst,
 	}
+	m.rps.Store(int64(rps))
+	return m
 }
 
 // UnaryInterceptor provides rate limiting for unary gRPC calls
@@ -79,27 +84,33 @@ func (r *RateLimitMiddleware) checkRateLimit(clientIP string) bool {
 
 	limiter, exists := r.limiters[clientIP]
 	if !exists {
-		limiter = rate.NewLimiter(rate.Limit(r.rps), r.burst)
+		limiter = rate.NewLimiter(rate.Limit(r.rps.Load()), r.burst)
 		r.limiters[clientIP] = limiter
 	}
 
 	return limiter.Allow()
 }
 
-// CleanupExpiredLimiters removes expired rate limiters to prevent memory leaks
-func (r *RateLimitMiddleware) CleanupExpiredLimiters() {
+// CleanupExpiredLimiters periodically removes idle rate limiters to keep the
+// per-IP map from growing unbounded. It runs until ctx is cancelled.
+func (r *RateLimitMiddleware) CleanupExpiredLimiters(ctx context.Context) {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		r.mu.Lock()
-		for ip, limiter := range r.limiters {
-			// Remove limiters that have full tokens (indicating they haven't been used recently)
-			if limiter.Tokens() == float64(r.burst) {
-				delete(r.limiters, ip)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			r.mu.Lock()
+			for ip, limiter := range r.limiters {
+				// Remove limiters that have full tokens (idle / unused recently)
+				if limiter.Tokens() == float64(r.burst) {
+					delete(r.limiters, ip)
+				}
 			}
+			r.mu.Unlock()
 		}
-		r.mu.Unlock()
 	}
 }
 
@@ -204,7 +215,7 @@ func (a *AdaptiveRateLimiter) UpdateLoadFactor(loadFactor float64) {
 	a.loadFactor = loadFactor
 
 	// Adjust rate limits based on load
-	newRPS := int(float64(a.baseLimiter.rps) / loadFactor)
+	newRPS := int(float64(a.baseLimiter.rps.Load()) / loadFactor)
 	if newRPS < a.minRPS {
 		newRPS = a.minRPS
 	}
@@ -212,7 +223,7 @@ func (a *AdaptiveRateLimiter) UpdateLoadFactor(loadFactor float64) {
 		newRPS = a.maxRPS
 	}
 
-	a.baseLimiter.rps = newRPS
+	a.baseLimiter.rps.Store(int64(newRPS))
 }
 
 // CheckLimit checks if the request is within adaptive rate limits

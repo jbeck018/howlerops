@@ -77,13 +77,24 @@ func (cs *CredentialStore) UpdateCredential(userID string, credential *webauthn.
 
 // GetCredentials retrieves all credentials for a user
 func (cs *CredentialStore) GetCredentials(userID string) ([]webauthn.Credential, error) {
+	// Fast path: serve cache hits under a read lock.
 	cs.mu.RLock()
-	defer cs.mu.RUnlock()
+	if credentials, ok := cs.cache[userID]; ok {
+		cs.mu.RUnlock()
+		return credentials, nil
+	}
+	cs.mu.RUnlock()
 
+	// Slow path: load from the keyring under the write lock so populating the
+	// cache is race-free. getCredentialsUnsafe re-checks the cache first, so a
+	// concurrent populate is handled (double-checked locking).
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
 	return cs.getCredentialsUnsafe(userID)
 }
 
-// getCredentialsUnsafe retrieves credentials without locking (internal use)
+// getCredentialsUnsafe retrieves credentials and populates the cache. It writes
+// cs.cache, so callers MUST hold the write lock (cs.mu.Lock).
 func (cs *CredentialStore) getCredentialsUnsafe(userID string) ([]webauthn.Credential, error) {
 	// Check cache first
 	if credentials, ok := cs.cache[userID]; ok {

@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -25,13 +24,6 @@ type ElasticsearchDatabase struct {
 	baseURL    string
 	authHeader string
 	stats      connectionStats
-}
-
-// connectionStats tracks connection statistics for non-pool connections
-type connectionStats struct {
-	requestCount  int64
-	errorCount    int64
-	lastRequestAt time.Time
 }
 
 // NewElasticsearchDatabase creates a new Elasticsearch database instance
@@ -229,15 +221,13 @@ func (es *ElasticsearchDatabase) Execute(ctx context.Context, query string, args
 // ExecuteWithOptions runs a SQL query with options using Elasticsearch SQL API
 func (es *ElasticsearchDatabase) ExecuteWithOptions(ctx context.Context, query string, opts *QueryOptions, args ...interface{}) (*QueryResult, error) {
 	start := time.Now()
-	es.stats.requestCount++
-	es.stats.lastRequestAt = start
+	es.stats.recordRequest(start)
 
 	// Check if query already has LIMIT clause
 	trimmedQuery := strings.TrimSpace(query)
 	trimmedQuery = strings.TrimSuffix(trimmedQuery, ";")
 
 	// Parse existing LIMIT clause (handles "LIMIT 1000" and "LIMIT 1000 OFFSET 500")
-	limitRegex := regexp.MustCompile(`(?i)\s+LIMIT\s+(\d+)(?:\s+OFFSET\s+(\d+))?`)
 	matches := limitRegex.FindStringSubmatch(trimmedQuery)
 
 	var userLimit int64
@@ -322,7 +312,7 @@ func (es *ElasticsearchDatabase) ExecuteWithOptions(ctx context.Context, query s
 
 	bodyBytes, err := json.Marshal(queryBody)
 	if err != nil {
-		es.stats.errorCount++
+		es.stats.recordError()
 		return &QueryResult{
 			Error:    err,
 			Duration: time.Since(start),
@@ -331,7 +321,7 @@ func (es *ElasticsearchDatabase) ExecuteWithOptions(ctx context.Context, query s
 
 	req, err := http.NewRequestWithContext(ctx, "POST", sqlURL, bytes.NewReader(bodyBytes))
 	if err != nil {
-		es.stats.errorCount++
+		es.stats.recordError()
 		return &QueryResult{
 			Error:    err,
 			Duration: time.Since(start),
@@ -345,7 +335,7 @@ func (es *ElasticsearchDatabase) ExecuteWithOptions(ctx context.Context, query s
 
 	resp, err := es.httpClient.Do(req)
 	if err != nil {
-		es.stats.errorCount++
+		es.stats.recordError()
 		return &QueryResult{
 			Error:    err,
 			Duration: time.Since(start),
@@ -359,7 +349,7 @@ func (es *ElasticsearchDatabase) ExecuteWithOptions(ctx context.Context, query s
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		es.stats.errorCount++
+		es.stats.recordError()
 		return &QueryResult{
 			Error:    err,
 			Duration: time.Since(start),
@@ -367,7 +357,7 @@ func (es *ElasticsearchDatabase) ExecuteWithOptions(ctx context.Context, query s
 	}
 
 	if resp.StatusCode >= 400 {
-		es.stats.errorCount++
+		es.stats.recordError()
 		var errResp map[string]interface{}
 		var resultErr error
 		if unmarshalErr := json.Unmarshal(body, &errResp); unmarshalErr == nil {
@@ -392,7 +382,7 @@ func (es *ElasticsearchDatabase) ExecuteWithOptions(ctx context.Context, query s
 	// Parse SQL response
 	var sqlResp elasticsearchSQLResponse
 	if err := json.Unmarshal(body, &sqlResp); err != nil {
-		es.stats.errorCount++
+		es.stats.recordError()
 		return &QueryResult{
 			Error:    err,
 			Duration: time.Since(start),

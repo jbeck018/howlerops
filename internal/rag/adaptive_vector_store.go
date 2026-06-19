@@ -107,8 +107,12 @@ func (a *AdaptiveVectorStore) enqueueSync(doc *Document) {
 
 func (a *AdaptiveVectorStore) syncWithBackoff(doc *Document) {
 	defer a.wg.Done()
-	// Remove inFlight flag on return
+	// Free the queue slot first, then clear the inFlight flag. The buffered
+	// `syncing` channel acts as a 256-wide concurrency gate; without draining it
+	// here the buffer would fill permanently after 256 distinct documents and all
+	// further syncs would be silently dropped.
 	defer func() {
+		<-a.syncing
 		a.flightMu.Lock()
 		delete(a.inFlight, doc.ID)
 		a.flightMu.Unlock()

@@ -57,10 +57,23 @@ export class StreamingQueryClient extends EventEmitter {
   private chunkBuffers: Map<string, unknown[]> = new Map();
   private metrics: Map<string, QueryProgress> = new Map();
   private apiUrl: string = '/api';
+  private memoryMonitorInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     super();
     this.setupMemoryMonitoring();
+  }
+
+  /**
+   * Stop background monitoring and release listeners. Call when the client is no
+   * longer needed (the interval otherwise runs for the lifetime of the page).
+   */
+  dispose(): void {
+    if (this.memoryMonitorInterval !== null) {
+      clearInterval(this.memoryMonitorInterval);
+      this.memoryMonitorInterval = null;
+    }
+    this.removeAllListeners();
   }
 
   private handleStreamingMessage(
@@ -410,7 +423,7 @@ export class StreamingQueryClient extends EventEmitter {
    */
   private setupMemoryMonitoring(): void {
     if ('memory' in performance) {
-      setInterval(() => {
+      this.memoryMonitorInterval = setInterval(() => {
         const memoryInfo = (performance as unknown as { memory: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
         const usedMemory = memoryInfo.usedJSHeapSize;
         const totalMemory = memoryInfo.jsHeapSizeLimit;
@@ -481,6 +494,8 @@ export class VirtualTableRenderer {
   private renderCallback: (row: unknown, index: number) => HTMLElement;
   private scrollTop: number = 0;
   private renderedRange: { start: number; end: number } = { start: 0, end: 0 };
+  private scrollHandler: (() => void) | null = null;
+  private scrollTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     container: HTMLElement,
@@ -587,17 +602,34 @@ export class VirtualTableRenderer {
    * Setup scroll listener with debouncing
    */
   private setupScrollListener(): void {
-    let scrollTimeout: NodeJS.Timeout;
-
-    this.container.addEventListener('scroll', () => {
+    this.scrollHandler = () => {
       this.scrollTop = this.container.scrollTop;
 
       // Debounce rendering
-      clearTimeout(scrollTimeout);
-      scrollTimeout = setTimeout(() => {
+      if (this.scrollTimeout !== null) {
+        clearTimeout(this.scrollTimeout);
+      }
+      this.scrollTimeout = setTimeout(() => {
         this.render();
       }, 16); // ~60fps
-    });
+    };
+
+    this.container.addEventListener('scroll', this.scrollHandler);
+  }
+
+  /**
+   * Remove the scroll listener and cancel any pending render. Call when the
+   * renderer's container is torn down so the listener/closure can be GC'd.
+   */
+  destroy(): void {
+    if (this.scrollHandler) {
+      this.container.removeEventListener('scroll', this.scrollHandler);
+      this.scrollHandler = null;
+    }
+    if (this.scrollTimeout !== null) {
+      clearTimeout(this.scrollTimeout);
+      this.scrollTimeout = null;
+    }
   }
 
   /**

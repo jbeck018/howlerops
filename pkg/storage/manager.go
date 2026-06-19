@@ -45,6 +45,23 @@ type Manager struct {
 	userID     string
 	dataDir    string // Local data directory path
 	logger     *logrus.Logger
+
+	// Background adaptive-sync handles (set only when remote sync is enabled).
+	// syncCancel stops the heartbeat worker; adaptive is retained so Close() can
+	// drain in-flight syncs. Without these the worker goroutine + ticker leaked
+	// for the process lifetime.
+	syncCancel context.CancelFunc
+	adaptive   pkgrag.VectorStore
+}
+
+// startAdaptiveSync starts the background sync heartbeat for an adaptive vector
+// store under a cancelable context and records the handles needed for a clean
+// shutdown in Close().
+func (m *Manager) startAdaptiveSync(adaptive pkgrag.VectorStore) {
+	syncCtx, cancel := context.WithCancel(context.Background())
+	m.syncCancel = cancel
+	m.adaptive = adaptive
+	pkgrag.StartSyncWorker(syncCtx, adaptive, 200_000_000) // 200ms heartbeat
 }
 
 // NewManager creates a new storage manager
@@ -94,7 +111,7 @@ func NewManager(ctx context.Context, config *Config, logger *logrus.Logger) (*Ma
 					logger.WithError(err).Warn("Failed to initialize remote vector store; continuing local-only")
 				} else {
 					adaptive := pkgrag.NewAdaptiveVectorStore("individual", localStore.getVectorStore(), remote, true)
-					pkgrag.StartSyncWorker(context.Background(), adaptive, 200_000_000) // 200ms
+					manager.startAdaptiveSync(adaptive)
 					localStore.setVectorStore(adaptive)
 					logger.Info("Solo mode with cloud user: enabled individual-tier local-first sync")
 				}
@@ -124,7 +141,7 @@ func NewManager(ctx context.Context, config *Config, logger *logrus.Logger) (*Ma
 					} else {
 						adaptive := pkgrag.NewAdaptiveVectorStore("team", localStore.getVectorStore(), remote, true)
 						// conservative heartbeat; per-doc backoff governs actual sync
-						pkgrag.StartSyncWorker(context.Background(), adaptive, 200_000_000) // 200ms
+						manager.startAdaptiveSync(adaptive)
 						localStore.setVectorStore(adaptive)
 						manager.mode = ModeTeam
 						manager.storage = localStore
@@ -254,6 +271,19 @@ func (m *Manager) Close() error {
 	defer m.mu.Unlock()
 
 	var errors []error
+
+	// Stop the background sync heartbeat and drain any in-flight syncs before
+	// closing the underlying stores.
+	if m.syncCancel != nil {
+		m.syncCancel()
+		m.syncCancel = nil
+	}
+	if m.adaptive != nil {
+		if s, ok := m.adaptive.(interface{ Shutdown() }); ok {
+			s.Shutdown()
+		}
+		m.adaptive = nil
+	}
 
 	if m.localStore != nil {
 		if err := m.localStore.Close(); err != nil {
