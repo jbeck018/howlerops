@@ -254,6 +254,54 @@ download_file() {
     fi
 }
 
+# Bytes available on the filesystem that holds the given directory.
+# Prints the available byte count, or nothing if it cannot be determined.
+available_bytes() {
+    local dir="$1"
+    command_exists df || return 0
+    # -P forces POSIX single-line output; -k reports 1024-byte blocks.
+    # Available space is column 4 on both GNU and BSD/macOS df.
+    local kb
+    kb="$(df -Pk "$dir" 2>/dev/null | awk 'NR==2 {print $4}')"
+    case "$kb" in
+        ''|*[!0-9]*) return 0 ;;  # non-numeric / unknown -> give up quietly
+        *) echo $((kb * 1024)) ;;
+    esac
+}
+
+# Remote size (Content-Length) of a URL via a HEAD request, following redirects
+# (GitHub assets redirect to a CDN). Prints the byte count, or nothing.
+remote_size() {
+    local url="$1"
+    command_exists curl || return 0
+    curl -sIL "$url" 2>/dev/null \
+        | tr -d '\r' \
+        | awk -F': ' 'tolower($1)=="content-length" {len=$2} END {if (len ~ /^[0-9]+$/) print len}'
+}
+
+# Abort early with a clear message if the temp volume cannot hold the download
+# plus its extraction. Best-effort: if either size is unknown, it stays quiet
+# and lets the download proceed (the post-download error still explains ENOSPC).
+preflight_disk_space() {
+    local url="$1"
+    local dir="$2"
+
+    local need avail
+    need="$(remote_size "$url")"
+    avail="$(available_bytes "$dir")"
+
+    [ -n "$need" ] && [ -n "$avail" ] || return 0
+
+    # Need room for the archive AND its extracted contents (~2.5x the archive,
+    # which compresses well), plus a small safety margin.
+    local required=$(( need * 5 / 2 + 16 * 1024 * 1024 ))
+    if [ "$avail" -lt "$required" ]; then
+        local need_mb=$(( need / 1024 / 1024 ))
+        local avail_mb=$(( avail / 1024 / 1024 ))
+        fail "Not enough free disk space to install HowlerOps.\n  - Download is ${need_mb} MB and needs ~$(( required / 1024 / 1024 )) MB free (with room to unpack)\n  - Only ${avail_mb} MB free on the volume holding ${dir}\n  - Free up space, or set TMPDIR to a volume with room: TMPDIR=/path/with/space sh install.sh"
+    fi
+}
+
 # ============================================================================
 # Checksum Verification
 # ============================================================================
@@ -696,6 +744,10 @@ EOF
 
     local archive="${temp_dir}/${archive_name}.tar.gz"
     local checksums="${temp_dir}/checksums.txt"
+
+    # Fail fast if the temp volume clearly can't hold the download + extraction,
+    # rather than aborting mid-write with a cryptic curl (56) error.
+    preflight_disk_space "$archive_url" "$temp_dir"
 
     # Download archive
     log "Downloading HowlerOps ${VERSION}..."
