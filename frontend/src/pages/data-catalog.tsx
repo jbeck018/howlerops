@@ -11,7 +11,8 @@ import {
   Trash2,
   User,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -407,6 +408,27 @@ export function DataCatalog() {
     return map
   }, [tags])
 
+  // Virtualize both catalog views so only on-screen rows hit the DOM (the lists
+  // were previously fully rendered — O(tables) nodes, doubled by column rows on
+  // expand). Tree rows vary in height (expand/collapse) so they're dynamically
+  // measured; table-view rows are uniform.
+  const treeScrollRef = useRef<HTMLDivElement>(null)
+  const tableScrollRef = useRef<HTMLDivElement>(null)
+
+  const treeVirtualizer = useVirtualizer({
+    count: filteredTables.length,
+    getScrollElement: () => treeScrollRef.current,
+    estimateSize: () => 88,
+    overscan: 8,
+  })
+
+  const tableVirtualizer = useVirtualizer({
+    count: filteredTables.length,
+    getScrollElement: () => tableScrollRef.current,
+    estimateSize: () => 44,
+    overscan: 12,
+  })
+
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       <div className="flex-1 space-y-6 overflow-y-auto p-6">
@@ -689,9 +711,20 @@ export function DataCatalog() {
                   </div>
                 </div>
 
-                <TabsContent value="tree" className="space-y-2">
-                  {filteredTables.map((table) => (
-                    <Card key={table.id} className={cn(selectedTable?.id === table.id && 'border-primary')}>
+                <TabsContent value="tree">
+                  <div ref={treeScrollRef} className="max-h-[600px] overflow-auto pr-1">
+                    <div style={{ height: `${treeVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
+                      {treeVirtualizer.getVirtualItems().map((virtualItem) => {
+                        const table = filteredTables[virtualItem.index]
+                        return (
+                          <div
+                            key={table.id}
+                            data-index={virtualItem.index}
+                            ref={treeVirtualizer.measureElement}
+                            className="pb-2"
+                            style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${virtualItem.start}px)` }}
+                          >
+                    <Card className={cn(selectedTable?.id === table.id && 'border-primary')}>
                       <CardHeader className="pb-3">
                         <div className="flex items-start justify-between">
                           <div className="flex items-start gap-2">
@@ -819,7 +852,11 @@ export function DataCatalog() {
                         </div>
                       </div>
                     </Card>
-                  ))}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
                 </TabsContent>
 
                 <TabsContent value="table" className="space-y-2">
@@ -830,9 +867,18 @@ export function DataCatalog() {
                       <div>Tags</div>
                       <div>Actions</div>
                     </div>
-                    <div className="divide-y">
-                      {filteredTables.map((table) => (
-                        <div key={table.id} className="grid grid-cols-[2fr_3fr_1fr_auto] gap-2 p-2 text-sm">
+                    <div ref={tableScrollRef} className="max-h-[600px] overflow-auto">
+                      <div style={{ height: `${tableVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
+                      {tableVirtualizer.getVirtualItems().map((virtualItem) => {
+                        const table = filteredTables[virtualItem.index]
+                        return (
+                        <div
+                          key={table.id}
+                          data-index={virtualItem.index}
+                          ref={tableVirtualizer.measureElement}
+                          className="grid grid-cols-[2fr_3fr_1fr_auto] gap-2 border-b p-2 text-sm"
+                          style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${virtualItem.start}px)` }}
+                        >
                           <div className="flex items-center gap-2">
                             <span className="font-medium">
                               {table.schema_name}.{table.table_name}
@@ -867,7 +913,9 @@ export function DataCatalog() {
                             <Edit2 className="h-3 w-3" />
                           </Button>
                         </div>
-                      ))}
+                        )
+                      })}
+                      </div>
                     </div>
                   </div>
                 </TabsContent>
