@@ -22,6 +22,11 @@ interface WebSocketProviderProps {
 export function WebSocketProvider({ children, options = {} }: WebSocketProviderProps) {
   const webSocket = useWebSocket(options);
 
+  // Depend on the individual (stable) fields rather than the aggregate
+  // `webSocket` object, which is a fresh literal every render — depending on it
+  // recomputed the memo (and churned the context identity) on every render,
+  // re-rendering every consumer. With the callbacks now stable, this only
+  // recomputes when connectionState actually changes.
   const contextValue: WebSocketContextValue = useMemo(() => ({
     // Connection
     socket: webSocket.getSocket(),
@@ -44,7 +49,20 @@ export function WebSocketProvider({ children, options = {} }: WebSocketProviderP
     // Utilities
     getStats: webSocket.getStats,
     healthCheck: webSocket.healthCheck,
-  }), [webSocket]);
+  }), [
+    webSocket.connectionState,
+    webSocket.connect,
+    webSocket.disconnect,
+    webSocket.joinRoom,
+    webSocket.leaveRoom,
+    webSocket.getRooms,
+    webSocket.sendMessage,
+    webSocket.on,
+    webSocket.off,
+    webSocket.getStats,
+    webSocket.healthCheck,
+    webSocket.getSocket,
+  ]);
 
   return (
     <WebSocketContext.Provider value={contextValue}>

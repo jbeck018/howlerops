@@ -48,6 +48,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const isManuallyDisconnectedRef = useRef(false);
   const connectRef = useRef<(() => Promise<void>) | null>(null);
 
+  // Keep the caller's event-handler callbacks in a ref that's refreshed every
+  // render. Reading them through the ref (instead of a useCallback dependency)
+  // keeps `connect`/`handleIncomingEvent` stable across renders, so passing an
+  // inline `eventHandlers` object no longer tears down and reopens the socket on
+  // every render (the previous reconnect storm).
+  const optionHandlersRef = useRef(opts.eventHandlers);
+  optionHandlersRef.current = opts.eventHandlers;
+
   /**
    * Update connection status
    */
@@ -99,40 +107,40 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     // Route to global event handlers
     switch (event.type) {
       case 'query:progress':
-        opts.eventHandlers?.onQueryProgress?.(event.data as QueryProgress);
+        optionHandlersRef.current?.onQueryProgress?.(event.data as QueryProgress);
         break;
       case 'query:result':
-        opts.eventHandlers?.onQueryResult?.(event.data as QueryResult);
+        optionHandlersRef.current?.onQueryResult?.(event.data as QueryResult);
         break;
       case 'query:error':
-        opts.eventHandlers?.onQueryError?.(event.data as QueryError);
+        optionHandlersRef.current?.onQueryError?.(event.data as QueryError);
         break;
       case 'data:chunk':
-        opts.eventHandlers?.onDataChunk?.(event.data as DataChunk);
+        optionHandlersRef.current?.onDataChunk?.(event.data as DataChunk);
         break;
       case 'table:edit:apply':
-        opts.eventHandlers?.onTableEditApply?.(event.data as { editId: string; success: boolean; error?: string });
+        optionHandlersRef.current?.onTableEditApply?.(event.data as { editId: string; success: boolean; error?: string });
         break;
       case 'table:edit:conflict':
-        opts.eventHandlers?.onTableEditConflict?.(event.data as TableEditConflict);
+        optionHandlersRef.current?.onTableEditConflict?.(event.data as TableEditConflict);
         break;
       case 'table:row:update':
-        opts.eventHandlers?.onTableRowUpdate?.(event.data as TableRowChange);
+        optionHandlersRef.current?.onTableRowUpdate?.(event.data as TableRowChange);
         break;
       case 'table:row:insert':
-        opts.eventHandlers?.onTableRowInsert?.(event.data as TableRowChange);
+        optionHandlersRef.current?.onTableRowInsert?.(event.data as TableRowChange);
         break;
       case 'table:row:delete':
-        opts.eventHandlers?.onTableRowDelete?.(event.data as TableRowChange);
+        optionHandlersRef.current?.onTableRowDelete?.(event.data as TableRowChange);
         break;
       case 'user:join':
-        opts.eventHandlers?.onUserJoin?.(event.data as { userId: string; username: string; roomId: string });
+        optionHandlersRef.current?.onUserJoin?.(event.data as { userId: string; username: string; roomId: string });
         break;
       case 'user:leave':
-        opts.eventHandlers?.onUserLeave?.(event.data as { userId: string; username: string; roomId: string });
+        optionHandlersRef.current?.onUserLeave?.(event.data as { userId: string; username: string; roomId: string });
         break;
     }
-  }, [opts.eventHandlers]);
+  }, []);
 
   /**
    * Handle reconnection with exponential backoff
@@ -198,7 +206,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         flushMessageQueue();
 
         // Call user handler
-        opts.eventHandlers?.onConnect?.({
+        optionHandlersRef.current?.onConnect?.({
           connectionId: socket.id || 'unknown',
           serverInfo: {},
         });
@@ -209,7 +217,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         updateConnectionStatus('disconnected');
 
         // Call user handler
-        opts.eventHandlers?.onDisconnect?.({ reason });
+        optionHandlersRef.current?.onDisconnect?.({ reason });
 
         // Auto-reconnect if not manually disconnected
         if (!isManuallyDisconnectedRef.current && reason !== 'io client disconnect') {
@@ -222,7 +230,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         updateConnectionStatus('error', error.message);
 
         // Call user handler
-        opts.eventHandlers?.onError?.({ error: error.message });
+        optionHandlersRef.current?.onError?.({ error: error.message });
 
         // Schedule reconnect
         scheduleReconnect();
@@ -248,7 +256,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       socket.on('error', (error: unknown) => {
         console.error('WebSocket error:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        opts.eventHandlers?.onError?.({ error: errorMessage });
+        optionHandlersRef.current?.onError?.({ error: errorMessage });
       });
 
       // Acknowledgment handler
@@ -271,7 +279,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       updateConnectionStatus('error', error instanceof Error ? error.message : 'Connection failed');
       scheduleReconnect();
     }
-  }, [opts.url, opts.eventHandlers, scheduleReconnect, updateConnectionStatus, flushMessageQueue, handleIncomingEvent]);
+  }, [opts.url, scheduleReconnect, updateConnectionStatus, flushMessageQueue, handleIncomingEvent]);
 
   /**
    * Disconnect from WebSocket server

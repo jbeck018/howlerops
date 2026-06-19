@@ -31,11 +31,24 @@ export function useMultiDBSchemas({
   // Column cache for lazy loading (sessionId-schema-table -> columns)
   const columnCacheRef = useRef<Map<string, SchemaNode[]>>(new Map())
 
+  // Monotonic token identifying the most recent load. A slow
+  // GetMultiConnectionSchema response from a superseded load must not overwrite
+  // the results of a newer one (out-of-order / stale-response race).
+  const loadGenerationRef = useRef(0)
+
   useEffect(() => {
     multiDBSchemasRef.current = multiDBSchemas
   }, [multiDBSchemas])
 
   const loadMultiDBSchemas = useCallback(async () => {
+    // Tag this load; only apply its results if no newer load has started since.
+    const myGeneration = ++loadGenerationRef.current
+    const applySchemas = (next: Map<string, SchemaNode[]>) => {
+      if (loadGenerationRef.current !== myGeneration) return // superseded by a newer load
+      setMultiDBSchemas(next)
+      multiDBSchemasRef.current = next
+    }
+
     // For @ symbol autocomplete, we need ALL connected connections, not just filtered ones
     // The environment filter should only affect the UI, not the autocomplete functionality
     const relevantConnections = mode === 'multi' ? connections.filter(c => c.isConnected) : connections
@@ -61,7 +74,7 @@ export function useMultiDBSchemas({
       const sessionIds = connectedWithSessions.map(c => c.sessionId!)
 
       if (sessionIds.length === 0) {
-        setMultiDBSchemas(new Map())
+        applySchemas(new Map())
         return
       }
 
@@ -71,7 +84,7 @@ export function useMultiDBSchemas({
         const combined = await GetMultiConnectionSchema(sessionIds)
 
           if (!combined || !combined.connections) {
-            setMultiDBSchemas(new Map())
+            applySchemas(new Map())
             return
           }
 
@@ -148,24 +161,37 @@ export function useMultiDBSchemas({
           })
 
           // ✅ UPDATE BOTH STATE AND REF! Don't wait for useEffect - update ref immediately
-          const newMap = new Map(schemasMap)
-          setMultiDBSchemas(newMap)
-          multiDBSchemasRef.current = newMap  // Direct ref update for immediate availability!
+          applySchemas(new Map(schemasMap))
         }
       }
 
       // Final update with complete schema
-      setMultiDBSchemas(schemasMap)
-      multiDBSchemasRef.current = schemasMap  // Final ref sync
+      applySchemas(schemasMap)
       } catch {
-      setMultiDBSchemas(new Map())
+      applySchemas(new Map())
       return
       }
     } catch {
       // Set empty map on error so autocomplete still works (without multi-DB)
-      setMultiDBSchemas(new Map())
+      applySchemas(new Map())
     }
   }, [mode, connections, connectToDatabase])
+
+  // Keep the latest loadMultiDBSchemas in a ref so the load effect doesn't need
+  // it (and the volatile `connections` array) in its dependency list.
+  const loadRef = useRef(loadMultiDBSchemas)
+  useEffect(() => {
+    loadRef.current = loadMultiDBSchemas
+  }, [loadMultiDBSchemas])
+
+  // A stable key of the connected sessions. The effect re-arms only when this
+  // SET changes, not on every `connections` array identity flip — previously the
+  // 300ms-debounced reload re-armed repeatedly during multi-DB auto-connect.
+  const connectedSessionsKey = connections
+    .filter(c => c.isConnected && c.sessionId)
+    .map(c => c.sessionId)
+    .sort()
+    .join(',')
 
   // Load schemas for all connections when in multi-DB mode
   useEffect(() => {
@@ -173,8 +199,7 @@ export function useMultiDBSchemas({
       return
     }
 
-    const connectedConnections = connections.filter(c => c.isConnected)
-    if (connectedConnections.length === 0) {
+    if (connectedSessionsKey === '') {
       const emptyMap = new Map<string, SchemaNode[]>()
       setMultiDBSchemas(emptyMap)
       multiDBSchemasRef.current = emptyMap
@@ -184,9 +209,9 @@ export function useMultiDBSchemas({
     // Debounce: a burst of connection-state changes (e.g. auto-connecting
     // several databases at once) would otherwise trigger a full schema reload
     // for each flip. Coalesce them into a single load.
-    const timer = setTimeout(() => { void loadMultiDBSchemas() }, 300)
+    const timer = setTimeout(() => { void loadRef.current() }, 300)
     return () => clearTimeout(timer)
-  }, [mode, connections, loadMultiDBSchemas])
+  }, [mode, connectedSessionsKey])
 
   const columnLoader: ColumnLoader = useCallback(async (sessionId: string, schema: string, tableName: string) => {
     try {
