@@ -100,6 +100,10 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      // Bind IPv4 explicitly: the Wails dev asset handler dials tcp4 127.0.0.1,
+      // but vite otherwise binds `localhost` which resolves to ::1 (IPv6) on
+      // macOS, causing 502 Bad Gateway / blank window in dev.
+      host: '127.0.0.1',
       port: 5173,
       proxy: {
         // REST API proxy (for backward compatibility)

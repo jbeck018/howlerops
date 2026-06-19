@@ -63,11 +63,33 @@ export function ExplainQuery(connectionID: string, query: string): $CancellableP
 }
 
 /**
+ * GetConnectionSchemaFull returns the entire schema of a connection (schemas +
+ * tables + per-table structures) in a single call, replacing the frontend's
+ * databases -> tables -> columns IPC waterfall.
+ */
+export function GetConnectionSchemaFull(connectionID: string): $CancellablePromise<$models.FullDatabaseSchema | null> {
+    return $Call.ByID(713811545, connectionID).then(($result: any) => {
+        return $$createType7($result);
+    });
+}
+
+/**
+ * GetDatabaseSchema returns the schemas and tables for a specific database on a
+ * connection without changing the connection's active database. Powers the
+ * schema explorer's lazy per-database browsing.
+ */
+export function GetDatabaseSchema(connectionID: string, database: string): $CancellablePromise<$models.DatabaseSchema | null> {
+    return $Call.ByID(3402961153, connectionID, database).then(($result: any) => {
+        return $$createType9($result);
+    });
+}
+
+/**
  * GetEditableMetadata returns the status of an editable metadata job
  */
 export function GetEditableMetadata(jobID: string): $CancellablePromise<$models.EditableMetadataJobResponse | null> {
     return $Call.ByID(2749583078, jobID).then(($result: any) => {
-        return $$createType7($result);
+        return $$createType11($result);
     });
 }
 
@@ -76,7 +98,7 @@ export function GetEditableMetadata(jobID: string): $CancellablePromise<$models.
  */
 export function GetMultiConnectionSchema(connectionIDs: string[]): $CancellablePromise<$models.CombinedSchema | null> {
     return $Call.ByID(83333791, connectionIDs).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType13($result);
     });
 }
 
@@ -85,7 +107,7 @@ export function GetMultiConnectionSchema(connectionIDs: string[]): $CancellableP
  */
 export function GetSchemas(connectionID: string): $CancellablePromise<string[]> {
     return $Call.ByID(4250618773, connectionID).then(($result: any) => {
-        return $$createType10($result);
+        return $$createType14($result);
     });
 }
 
@@ -94,7 +116,7 @@ export function GetSchemas(connectionID: string): $CancellablePromise<string[]> 
  */
 export function GetTableStructure(connectionID: string, schema: string, table: string): $CancellablePromise<$models.TableStructure | null> {
     return $Call.ByID(3988796790, connectionID, schema, table).then(($result: any) => {
-        return $$createType12($result);
+        return $$createType16($result);
     });
 }
 
@@ -103,7 +125,7 @@ export function GetTableStructure(connectionID: string, schema: string, table: s
  */
 export function GetTables(connectionID: string, schema: string): $CancellablePromise<$models.TableInfo[]> {
     return $Call.ByID(880220306, connectionID, schema).then(($result: any) => {
-        return $$createType14($result);
+        return $$createType18($result);
     });
 }
 
@@ -112,7 +134,7 @@ export function GetTables(connectionID: string, schema: string): $CancellablePro
  */
 export function InsertQueryRow(req: $models.QueryRowInsertRequest): $CancellablePromise<$models.QueryRowInsertResponse | null> {
     return $Call.ByID(1234750140, req).then(($result: any) => {
-        return $$createType16($result);
+        return $$createType20($result);
     });
 }
 
@@ -121,7 +143,7 @@ export function InsertQueryRow(req: $models.QueryRowInsertRequest): $Cancellable
  */
 export function ParseQueryConnections(query: string): $CancellablePromise<string[]> {
     return $Call.ByID(3869339421, query).then(($result: any) => {
-        return $$createType10($result);
+        return $$createType14($result);
     });
 }
 
@@ -130,7 +152,7 @@ export function ParseQueryConnections(query: string): $CancellablePromise<string
  */
 export function UpdateQueryRow(req: $models.QueryRowUpdateRequest): $CancellablePromise<$models.QueryRowUpdateResponse | null> {
     return $Call.ByID(2021039616, req).then(($result: any) => {
-        return $$createType18($result);
+        return $$createType22($result);
     });
 }
 
@@ -139,7 +161,7 @@ export function UpdateQueryRow(req: $models.QueryRowUpdateRequest): $Cancellable
  */
 export function ValidateMultiQuery(query: string): $CancellablePromise<$models.ValidationResult | null> {
     return $Call.ByID(3136491532, query).then(($result: any) => {
-        return $$createType20($result);
+        return $$createType24($result);
     });
 }
 
@@ -150,18 +172,22 @@ const $$createType2 = $models.MultiQueryResponse.createFrom;
 const $$createType3 = $Create.Nullable($$createType2);
 const $$createType4 = $models.QueryResponse.createFrom;
 const $$createType5 = $Create.Nullable($$createType4);
-const $$createType6 = $models.EditableMetadataJobResponse.createFrom;
+const $$createType6 = $models.FullDatabaseSchema.createFrom;
 const $$createType7 = $Create.Nullable($$createType6);
-const $$createType8 = $models.CombinedSchema.createFrom;
+const $$createType8 = $models.DatabaseSchema.createFrom;
 const $$createType9 = $Create.Nullable($$createType8);
-const $$createType10 = $Create.Array($Create.Any);
-const $$createType11 = $models.TableStructure.createFrom;
-const $$createType12 = $Create.Nullable($$createType11);
-const $$createType13 = $models.TableInfo.createFrom;
-const $$createType14 = $Create.Array($$createType13);
-const $$createType15 = $models.QueryRowInsertResponse.createFrom;
+const $$createType10 = $models.EditableMetadataJobResponse.createFrom;
+const $$createType11 = $Create.Nullable($$createType10);
+const $$createType12 = $models.CombinedSchema.createFrom;
+const $$createType13 = $Create.Nullable($$createType12);
+const $$createType14 = $Create.Array($Create.Any);
+const $$createType15 = $models.TableStructure.createFrom;
 const $$createType16 = $Create.Nullable($$createType15);
-const $$createType17 = $models.QueryRowUpdateResponse.createFrom;
-const $$createType18 = $Create.Nullable($$createType17);
-const $$createType19 = $models.ValidationResult.createFrom;
+const $$createType17 = $models.TableInfo.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = $models.QueryRowInsertResponse.createFrom;
 const $$createType20 = $Create.Nullable($$createType19);
+const $$createType21 = $models.QueryRowUpdateResponse.createFrom;
+const $$createType22 = $Create.Nullable($$createType21);
+const $$createType23 = $models.ValidationResult.createFrom;
+const $$createType24 = $Create.Nullable($$createType23);
