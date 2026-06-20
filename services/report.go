@@ -13,6 +13,7 @@ import (
 	cron "github.com/robfig/cron/v3"
 	"github.com/sirupsen/logrus"
 
+	"github.com/jbeck018/howlerops/internal/reportbind"
 	"github.com/jbeck018/howlerops/pkg/ai"
 	"github.com/jbeck018/howlerops/pkg/alerts"
 	"github.com/jbeck018/howlerops/pkg/database"
@@ -576,7 +577,12 @@ func (s *ReportService) runQueryComponent(report *storage.Report, component *sto
 		return res
 	}
 
-	sqlText = applyFilterPlaceholders(sqlText, component, filters)
+	boundSQL, bindErr := applyFilterPlaceholders(sqlText, report, component, filters)
+	if bindErr != nil {
+		res.Error = fmt.Sprintf("parameter binding failed: %v", bindErr)
+		return res
+	}
+	sqlText = boundSQL
 
 	// Check cache first (if TTL is configured and > 0)
 	cacheTTL := time.Duration(queryConfig.CacheSeconds) * time.Second
@@ -720,38 +726,12 @@ func (s *ReportService) runLLMComponent(report *storage.Report, component *stora
 	return res
 }
 
-func applyFilterPlaceholders(sql string, component *storage.ReportComponent, filters map[string]interface{}) string {
-	if len(filters) == 0 || len(component.Query.TopLevelFilter) == 0 {
-		return sql
-	}
-	replacements := map[string]string{}
-	for _, key := range component.Query.TopLevelFilter {
-		if val, ok := filters[key]; ok {
-			replacements["{{"+key+"}}"] = formatSQLValue(val)
-		}
-	}
-	return replaceTokens(sql, replacements)
-}
-
-func formatSQLValue(v interface{}) string {
-	switch val := v.(type) {
-	case nil:
-		return "NULL"
-	case string:
-		escaped := strings.ReplaceAll(val, "'", "''")
-		return "'" + escaped + "'"
-	case time.Time:
-		return "'" + val.UTC().Format(time.RFC3339) + "'"
-	case fmt.Stringer:
-		return "'" + strings.ReplaceAll(val.String(), "'", "''") + "'"
-	case bool:
-		if val {
-			return "TRUE"
-		}
-		return "FALSE"
-	default:
-		return fmt.Sprintf("%v", val)
-	}
+// applyFilterPlaceholders delegates to the reportbind package, which binds the
+// component's top-level {{filter}} placeholders to SQL-safe literals via the
+// canonical params engine. Kept as a thin wrapper so the call site reads
+// clearly and the binding logic stays in a Wails-free, unit-tested package.
+func applyFilterPlaceholders(sql string, report *storage.Report, component *storage.ReportComponent, filters map[string]interface{}) (string, error) {
+	return reportbind.Apply(sql, report, component, filters)
 }
 
 func buildContextPayload(componentIDs []string, prior map[string]ReportComponentResult) map[string]string {
