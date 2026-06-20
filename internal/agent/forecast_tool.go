@@ -47,12 +47,7 @@ func (e *Engine) buildForecastTool(rs *runState, connectionID string) (tool.Base
 			rs.lastResult = res
 			rs.mu.Unlock()
 
-			out, err := forecastFromResult(res, args.TimeColumn, args.ValueColumn, args.Horizon, args.Season)
-			if err != nil {
-				step.Output = "error: " + err.Error()
-				rs.record(step)
-				return out, nil // out carries a user-facing explanation
-			}
+			out := forecastFromResult(res, args.TimeColumn, args.ValueColumn, args.Horizon, args.Season)
 			step.Result = res
 			step.Output = out
 			rs.record(step)
@@ -62,12 +57,14 @@ func (e *Engine) buildForecastTool(rs *runState, connectionID string) (tool.Base
 }
 
 // forecastFromResult is the pure core of the forecast tool: it turns a query
-// result into a forecast narrative. Separated from the tool closure so it can
-// be unit-tested without an LLM. On a usage error it returns a user-facing
-// message AND a non-nil error; on success the message and a nil error.
-func forecastFromResult(res *SQLResult, timeCol, valueCol string, horizon, season int) (string, error) {
+// result into a forecast narrative for the model. Separated from the tool
+// closure so it can be unit-tested without an LLM. It always returns a
+// user-facing message; failures (no usable data, undetectable columns) are
+// described in the returned text rather than surfaced as an error, so the agent
+// can read the explanation and adjust.
+func forecastFromResult(res *SQLResult, timeCol, valueCol string, horizon, season int) string {
 	if res == nil {
-		return "No query result to forecast.", fmt.Errorf("nil result")
+		return "No query result to forecast."
 	}
 	if horizon <= 0 {
 		horizon = 7
@@ -83,23 +80,22 @@ func forecastFromResult(res *SQLResult, timeCol, valueCol string, horizon, seaso
 			vc = dvc
 		}
 		if !ok && (tc == "" || vc == "") {
-			msg := "Could not determine the time and value columns automatically. Re-run with time_column and value_column set."
-			return msg, fmt.Errorf("column detection failed")
+			return "Could not determine the time and value columns automatically. Re-run with time_column and value_column set."
 		}
 	}
 
 	series, skipped, err := forecast.SeriesFromRows(res.Columns, res.Rows, tc, vc)
 	if err != nil {
-		return fmt.Sprintf("Could not build a time series from the result: %v", err), err
+		return fmt.Sprintf("Could not build a time series from the result: %v", err)
 	}
 
 	fc, err := forecast.Forecast(series, forecast.Options{Horizon: horizon, SeasonLength: season})
 	if err != nil {
-		return fmt.Sprintf("Forecast failed: %v", err), err
+		return fmt.Sprintf("Forecast failed: %v", err)
 	}
 	anomalies, _ := forecast.DetectAnomalies(series, forecast.AnomalyOptions{SeasonLength: season})
 
-	return formatForecast(fc, anomalies, len(series), skipped, tc, vc), nil
+	return formatForecast(fc, anomalies, len(series), skipped, tc, vc)
 }
 
 // formatForecast renders a forecast result as concise text for the model to

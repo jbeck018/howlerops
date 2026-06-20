@@ -192,6 +192,13 @@ func resolveMethod(opt Options, n int) Method {
 	return MethodSES
 }
 
+// methodViable reports whether method m can be fit to n points with the given
+// season length. It mirrors validateForMethod but returns a bool, so callers
+// that intend to fall back (rather than fail) can branch without an error check.
+func methodViable(m Method, season, n int) bool {
+	return validateForMethod(m, season, n) == nil
+}
+
 func validateForMethod(m Method, season, n int) error {
 	switch m {
 	case MethodSES:

@@ -27,10 +27,7 @@ func linearResult(days int) *SQLResult {
 
 func TestForecastFromResult_Explicit(t *testing.T) {
 	res := linearResult(20)
-	out, err := forecastFromResult(res, "day", "revenue", 3, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := forecastFromResult(res, "day", "revenue", 3, 0)
 	if !strings.Contains(out, "Predictions") {
 		t.Errorf("missing predictions section: %q", out)
 	}
@@ -42,10 +39,7 @@ func TestForecastFromResult_Explicit(t *testing.T) {
 
 func TestForecastFromResult_AutoDetectColumns(t *testing.T) {
 	res := linearResult(15)
-	out, err := forecastFromResult(res, "", "", 2, 0)
-	if err != nil {
-		t.Fatalf("auto-detect should work: %v (out=%q)", err, out)
-	}
+	out := forecastFromResult(res, "", "", 2, 0)
 	if !strings.Contains(out, "revenue") || !strings.Contains(out, "day") {
 		t.Errorf("expected detected column names in output: %q", out)
 	}
@@ -53,10 +47,7 @@ func TestForecastFromResult_AutoDetectColumns(t *testing.T) {
 
 func TestForecastFromResult_DefaultsHorizon(t *testing.T) {
 	res := linearResult(15)
-	out, err := forecastFromResult(res, "day", "revenue", 0, 0) // horizon 0 -> default 7
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := forecastFromResult(res, "day", "revenue", 0, 0) // horizon 0 -> default 7
 	if n := strings.Count(out, "2026-"); n < 7 {
 		t.Errorf("expected default horizon of 7 predictions, got %d", n)
 	}
@@ -69,18 +60,16 @@ func TestForecastFromResult_DetectFailure(t *testing.T) {
 			{"label": "a", "note": "x"},
 		},
 	}
-	out, err := forecastFromResult(res, "", "", 3, 0)
-	if err == nil {
-		t.Error("expected error when columns can't be detected")
-	}
+	out := forecastFromResult(res, "", "", 3, 0)
 	if !strings.Contains(out, "time_column") {
 		t.Errorf("expected guidance to set columns, got %q", out)
 	}
 }
 
 func TestForecastFromResult_NilResult(t *testing.T) {
-	if _, err := forecastFromResult(nil, "", "", 3, 0); err == nil {
-		t.Error("expected error for nil result")
+	out := forecastFromResult(nil, "", "", 3, 0)
+	if !strings.Contains(out, "No query result") {
+		t.Errorf("expected nil-result message, got %q", out)
 	}
 }
 
@@ -88,10 +77,7 @@ func TestForecastFromResult_AnomalySection(t *testing.T) {
 	res := linearResult(30)
 	// Inject a spike.
 	res.Rows[15]["revenue"] = float64(99999)
-	out, err := forecastFromResult(res, "day", "revenue", 3, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := forecastFromResult(res, "day", "revenue", 3, 0)
 	if !strings.Contains(out, "Anomalies") {
 		t.Errorf("expected anomalies section for spiked data:\n%s", out)
 	}

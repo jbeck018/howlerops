@@ -72,7 +72,7 @@ func DetectAnomalies(s Series, opt AnomalyOptions) ([]Anomaly, error) {
 
 	// Fit a model purely to obtain residuals; horizon is irrelevant here.
 	method := resolveMethod(Options{SeasonLength: opt.SeasonLength}, len(values))
-	if validateForMethod(method, opt.SeasonLength, len(values)) != nil {
+	if !methodViable(method, opt.SeasonLength, len(values)) {
 		// Fall back to the mean as the "expected" value for tiny series rather
 		// than failing outright.
 		return detectAroundMean(data, values, opt), nil
