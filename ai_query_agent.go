@@ -216,6 +216,32 @@ func (s *WailsAIService) StreamAIQueryAgent(req AIQueryAgentRequest) (*AIQueryAg
 				response.Messages = append(response.Messages, resultMessage)
 				s.emitQueryAgentEvent(queryAgentEvent{SessionID: req.SessionID, TurnID: turnID, Status: "message", Message: &resultMessage})
 			}
+		case "forecast":
+			content := strings.TrimSpace(step.Output)
+			if content == "" {
+				content = "Generated a forecast."
+			}
+			forecastMessage := AIQueryAgentMessage{
+				ID:        uuid.NewString(),
+				Agent:     "forecaster",
+				Role:      "assistant",
+				Title:     "Forecast",
+				Content:   content,
+				CreatedAt: time.Now().UnixMilli(),
+			}
+			if strings.TrimSpace(step.SQL) != "" {
+				forecastMessage.Attachments = []AIQueryAgentAttachment{
+					{
+						Type: "sql",
+						SQL: &AIQueryAgentSQLAttachment{
+							Query:        step.SQL,
+							ConnectionID: connectionID,
+						},
+					},
+				}
+			}
+			response.Messages = append(response.Messages, forecastMessage)
+			s.emitQueryAgentEvent(queryAgentEvent{SessionID: req.SessionID, TurnID: turnID, Status: "message", Message: &forecastMessage})
 		case "get_schema", "search_memory":
 			toolMessage := AIQueryAgentMessage{
 				ID:        uuid.NewString(),
