@@ -65,6 +65,7 @@ type AppLifecycle struct {
 	fileSvc       *WailsFileService
 	keyboardSvc   *WailsKeyboardService
 	reportSvc     *WailsReportService
+	runbookSvc    *WailsRunbookService
 	catalogSvc    *CatalogService
 	schemaDiffSvc *SchemaDiffService
 	storageSvc    *StorageService
@@ -148,6 +149,7 @@ func NewAppLifecycle() *AppLifecycle {
 	lc.fileSvc = NewWailsFileService(deps, fileService, credentialService, nil)
 	lc.keyboardSvc = NewWailsKeyboardService(deps, keyboardService)
 	lc.reportSvc = NewWailsReportService(deps, reportService)
+	lc.runbookSvc = NewWailsRunbookService(deps)
 	lc.catalogSvc = NewCatalogService(deps)
 	lc.schemaDiffSvc = NewSchemaDiffService(deps)
 	// StorageService: storageMigration and syntheticViews are nil until
@@ -184,6 +186,7 @@ func (lc *AppLifecycle) GetServices() []application.Service {
 		application.NewService(lc.fileSvc),
 		application.NewService(lc.keyboardSvc),
 		application.NewService(lc.reportSvc),
+		application.NewService(lc.runbookSvc),
 		application.NewService(lc.catalogSvc),
 		application.NewService(lc.schemaDiffSvc),
 		application.NewService(lc.storageSvc),
@@ -483,6 +486,15 @@ func (lc *AppLifecycle) initializeStorageManager(ctx context.Context) error {
 	}
 	if lc.reportService != nil {
 		lc.reportService.SetStorage(reportStorage)
+	}
+
+	// Runbook storage.
+	runbookStorage := storage.NewRunbookStore(manager.GetDB(), lc.logger)
+	if err := runbookStorage.EnsureSchema(); err != nil {
+		lc.logger.WithError(err).Warn("Failed to ensure runbooks table")
+	}
+	if lc.runbookSvc != nil {
+		lc.runbookSvc.SetStore(runbookStorage)
 	}
 
 	// DuckDB federation engine. When it initializes, wire it into the database
