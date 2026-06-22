@@ -14,6 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/jbeck018/howlerops/internal/reportbind"
+	"github.com/jbeck018/howlerops/internal/runner"
 	"github.com/jbeck018/howlerops/pkg/ai"
 	"github.com/jbeck018/howlerops/pkg/alerts"
 	"github.com/jbeck018/howlerops/pkg/database"
@@ -422,12 +423,46 @@ func (s *ReportService) runComponentsParallel(
 		}
 	}
 
-	// Phase 1: query components (no shared dependencies).
-	s.runTasks(queryTasks, results, func(task componentTask) ReportComponentResult {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		return s.runComponentWithTimeout(ctx, report, task.component, task.filters, nil)
-	})
+	// Phase 1: query components (no shared dependencies) run via the shared
+	// runner engine, bounded by the worker limit. Each component is a step with
+	// no dependencies; the runner schedules them concurrently.
+	if len(queryTasks) > 0 {
+		querySteps := make([]runner.Step, 0, len(queryTasks))
+		for _, task := range queryTasks {
+			task := task
+			querySteps = append(querySteps, runner.Step{
+				ID: task.component.ID,
+				Run: func(ctx context.Context, _ map[string]runner.Result) (any, error) {
+					return s.runComponentWithTimeout(ctx, report, task.component, task.filters, nil), nil
+				},
+			})
+		}
+		runResults, runErr := runner.Run(context.Background(), runner.Plan{Steps: querySteps}, runner.Options{
+			MaxParallel:    s.workerLimit,
+			DefaultTimeout: 5 * time.Minute,
+		})
+		if runErr != nil {
+			// Only an invalid plan (e.g. duplicate component IDs) reaches here;
+			// record the error against each query component rather than dropping
+			// results silently.
+			s.logger.WithError(runErr).Error("report runner plan invalid")
+			for _, task := range queryTasks {
+				results[task.index] = ReportComponentResult{
+					ComponentID: task.component.ID,
+					Type:        task.component.Type,
+					Error:       runErr.Error(),
+				}
+			}
+		} else {
+			for _, task := range queryTasks {
+				if r, ok := runResults[task.component.ID]; ok {
+					if rc, ok := r.Output.(ReportComponentResult); ok {
+						results[task.index] = rc
+					}
+				}
+			}
+		}
+	}
 
 	if len(llmTasks) == 0 {
 		return results
@@ -456,56 +491,6 @@ func (s *ReportService) runComponentsParallel(
 	}
 
 	return results
-}
-
-// runTasks executes the supplied tasks across a bounded worker pool, writing
-// each result into results at the task's original index. Each index is written
-// by exactly one goroutine and only read after all workers finish, so no
-// locking is required.
-func (s *ReportService) runTasks(
-	tasks []componentTask,
-	results []ReportComponentResult,
-	exec func(componentTask) ReportComponentResult,
-) {
-	if len(tasks) == 0 {
-		return
-	}
-
-	workerCount := s.workerLimit
-	if workerCount < 1 {
-		workerCount = 1
-	}
-	if len(tasks) < workerCount {
-		workerCount = len(tasks)
-	}
-
-	taskChan := make(chan componentTask, len(tasks))
-	var wg sync.WaitGroup
-
-	for i := 0; i < workerCount; i++ {
-		wg.Add(1)
-		go func(workerID int) {
-			defer func() {
-				if r := recover(); r != nil {
-					s.logger.WithFields(logrus.Fields{
-						"worker_id": workerID,
-						"panic":     r,
-					}).Error("Worker panicked during component execution")
-				}
-				wg.Done()
-			}()
-
-			for task := range taskChan {
-				results[task.index] = exec(task)
-			}
-		}(i)
-	}
-
-	for _, task := range tasks {
-		taskChan <- task
-	}
-	close(taskChan)
-	wg.Wait()
 }
 
 // runComponentWithTimeout executes a component with panic recovery
