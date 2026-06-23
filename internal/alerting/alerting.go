@@ -26,32 +26,32 @@ const (
 
 // AnomalyRule fires when an anomaly is present among the most recent points.
 type AnomalyRule struct {
-	SeasonLength int     // seasonality for the detector; 0 for none
-	Lookback     int     // only consider anomalies in the last N points (0 = all)
-	MinScore     float64 // minimum absolute deviation score to fire (0 = detector default)
+	SeasonLength int     `json:"seasonLength,omitempty"`
+	Lookback     int     `json:"lookback,omitempty"`
+	MinScore     float64 `json:"minScore,omitempty"`
 }
 
 // ThresholdRule fires when the latest observed value crosses a threshold.
 type ThresholdRule struct {
-	Comparator Comparator
-	Value      float64
+	Comparator Comparator `json:"comparator"`
+	Value      float64    `json:"value"`
 }
 
 // ForecastRule fires when any forecasted point within the horizon crosses a
 // threshold.
 type ForecastRule struct {
-	Horizon      int
-	SeasonLength int
-	Comparator   Comparator
-	Value        float64
+	Horizon      int        `json:"horizon,omitempty"`
+	SeasonLength int        `json:"seasonLength,omitempty"`
+	Comparator   Comparator `json:"comparator"`
+	Value        float64    `json:"value"`
 }
 
 // Rule is one alert definition. Exactly one of the rule kinds must be set.
 type Rule struct {
-	Name      string
-	Anomaly   *AnomalyRule
-	Threshold *ThresholdRule
-	Forecast  *ForecastRule
+	Name      string         `json:"name,omitempty"`
+	Anomaly   *AnomalyRule   `json:"anomaly,omitempty"`
+	Threshold *ThresholdRule `json:"threshold,omitempty"`
+	Forecast  *ForecastRule  `json:"forecast,omitempty"`
 }
 
 // Kind identifies which rule fired.
