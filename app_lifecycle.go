@@ -67,6 +67,7 @@ type AppLifecycle struct {
 	reportSvc     *WailsReportService
 	runbookSvc    *WailsRunbookService
 	alertSvc      *WailsAlertService
+	notebookSvc   *WailsNotebookService
 	catalogSvc    *CatalogService
 	schemaDiffSvc *SchemaDiffService
 	storageSvc    *StorageService
@@ -152,6 +153,7 @@ func NewAppLifecycle() *AppLifecycle {
 	lc.reportSvc = NewWailsReportService(deps, reportService)
 	lc.runbookSvc = NewWailsRunbookService(deps)
 	lc.alertSvc = NewWailsAlertService(deps)
+	lc.notebookSvc = NewWailsNotebookService(deps)
 	lc.catalogSvc = NewCatalogService(deps)
 	lc.schemaDiffSvc = NewSchemaDiffService(deps)
 	// StorageService: storageMigration and syntheticViews are nil until
@@ -190,6 +192,7 @@ func (lc *AppLifecycle) GetServices() []application.Service {
 		application.NewService(lc.reportSvc),
 		application.NewService(lc.runbookSvc),
 		application.NewService(lc.alertSvc),
+		application.NewService(lc.notebookSvc),
 		application.NewService(lc.catalogSvc),
 		application.NewService(lc.schemaDiffSvc),
 		application.NewService(lc.storageSvc),
@@ -512,6 +515,15 @@ func (lc *AppLifecycle) initializeStorageManager(ctx context.Context) error {
 	if lc.alertSvc != nil {
 		lc.alertSvc.SetStore(alertStorage)
 		lc.alertSvc.Start()
+	}
+
+	// Notebook storage.
+	notebookStorage := storage.NewNotebookStore(manager.GetDB(), lc.logger)
+	if err := notebookStorage.EnsureSchema(); err != nil {
+		lc.logger.WithError(err).Warn("Failed to ensure notebooks table")
+	}
+	if lc.notebookSvc != nil {
+		lc.notebookSvc.SetStore(notebookStorage)
 	}
 
 	// DuckDB federation engine. When it initializes, wire it into the database
