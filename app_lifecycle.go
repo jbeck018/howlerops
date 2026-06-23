@@ -66,6 +66,7 @@ type AppLifecycle struct {
 	keyboardSvc   *WailsKeyboardService
 	reportSvc     *WailsReportService
 	runbookSvc    *WailsRunbookService
+	alertSvc      *WailsAlertService
 	catalogSvc    *CatalogService
 	schemaDiffSvc *SchemaDiffService
 	storageSvc    *StorageService
@@ -150,6 +151,7 @@ func NewAppLifecycle() *AppLifecycle {
 	lc.keyboardSvc = NewWailsKeyboardService(deps, keyboardService)
 	lc.reportSvc = NewWailsReportService(deps, reportService)
 	lc.runbookSvc = NewWailsRunbookService(deps)
+	lc.alertSvc = NewWailsAlertService(deps)
 	lc.catalogSvc = NewCatalogService(deps)
 	lc.schemaDiffSvc = NewSchemaDiffService(deps)
 	// StorageService: storageMigration and syntheticViews are nil until
@@ -187,6 +189,7 @@ func (lc *AppLifecycle) GetServices() []application.Service {
 		application.NewService(lc.keyboardSvc),
 		application.NewService(lc.reportSvc),
 		application.NewService(lc.runbookSvc),
+		application.NewService(lc.alertSvc),
 		application.NewService(lc.catalogSvc),
 		application.NewService(lc.schemaDiffSvc),
 		application.NewService(lc.storageSvc),
@@ -255,6 +258,10 @@ func (lc *AppLifecycle) OnShutdown() {
 
 	if lc.reportService != nil {
 		lc.reportService.Shutdown()
+	}
+
+	if lc.alertSvc != nil {
+		lc.alertSvc.Stop()
 	}
 
 	if lc.aiService != nil {
@@ -495,6 +502,16 @@ func (lc *AppLifecycle) initializeStorageManager(ctx context.Context) error {
 	}
 	if lc.runbookSvc != nil {
 		lc.runbookSvc.SetStore(runbookStorage)
+	}
+
+	// Time-series alert storage + background monitor.
+	alertStorage := storage.NewTimeSeriesAlertStore(manager.GetDB(), lc.logger)
+	if err := alertStorage.EnsureSchema(); err != nil {
+		lc.logger.WithError(err).Warn("Failed to ensure timeseries_alerts table")
+	}
+	if lc.alertSvc != nil {
+		lc.alertSvc.SetStore(alertStorage)
+		lc.alertSvc.Start()
 	}
 
 	// DuckDB federation engine. When it initializes, wire it into the database
