@@ -1,6 +1,5 @@
 import { useLocation } from "react-router-dom"
 
-import { InvitationBanner } from "@/components/InvitationBanner"
 import { useLayoutStore } from "@/store/layout-store"
 
 import { ContextPanel } from "./context-panel"
@@ -24,7 +23,11 @@ export function MainLayout({ children }: MainLayoutProps) {
   return (
     <div className="flex h-screen flex-col">
       <Header />
-      <InvitationBanner />
+      {/*
+        Organization invitation banner is hidden for now — invitations are part
+        of the hosted / multi-user deployment story, which isn't ready yet.
+        Restore <InvitationBanner /> here once organizations return.
+      */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
         <IconRail />
         {showContextPanel && <ContextPanel />}

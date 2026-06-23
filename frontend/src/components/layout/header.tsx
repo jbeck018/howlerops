@@ -1,64 +1,16 @@
-import { Database, Moon, Plus, Sparkles, Sun } from "lucide-react"
+import { Moon, Sun } from "lucide-react"
 import { Link } from "react-router-dom"
-import { useShallow } from "zustand/react/shallow"
 
-import { AuthButton } from "@/components/auth/auth-button"
 import { TierBadge } from "@/components/tier-badge"
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { HowlerOpsIcon } from "@/components/ui/howlerops-icon"
 import { Switch } from "@/components/ui/switch"
 import { useTheme } from "@/hooks/use-theme"
-import { useAIQueryAgentStore } from "@/store/ai-query-agent-store"
-import { useAIConfig } from "@/store/ai-store"
-import { useConnectionStore } from "@/store/connection-store"
-import { useQueryEditorStore } from "@/store/query-editor-store"
 
 export function Header() {
   const { theme, setTheme } = useTheme()
-  const { createTab, setActiveTab } = useQueryEditorStore(useShallow((state) => ({
-    createTab: state.createTab,
-    setActiveTab: state.setActiveTab,
-  })))
-  const { activeConnection } = useConnectionStore(useShallow((state) => ({
-    activeConnection: state.activeConnection,
-  })))
-  const { config: aiConfig } = useAIConfig()
-  const { createAgentSession, setActiveAgentSession } = useAIQueryAgentStore(useShallow((state) => ({
-    createAgentSession: state.createSession,
-    setActiveAgentSession: state.setActiveSession,
-  })))
 
   const toggleTheme = () => {
     setTheme(theme === "light" ? "dark" : "light")
-  }
-
-  const handleNewSqlTab = () => {
-    const tabId = createTab('New Query', {
-      type: 'sql',
-      connectionId: activeConnection?.id,
-    })
-    setActiveTab(tabId)
-  }
-
-  const handleNewAiTab = () => {
-    const sessionId = createAgentSession({
-      title: `AI Query ${new Date().toLocaleTimeString()}`,
-      provider: aiConfig.provider,
-      model: aiConfig.selectedModel,
-    })
-    const tabId = createTab('AI Query Agent', {
-      type: 'ai',
-      connectionId: activeConnection?.id,
-      aiSessionId: sessionId,
-    })
-    setActiveAgentSession(sessionId)
-    setActiveTab(tabId)
   }
 
   return (
@@ -75,28 +27,14 @@ export function Header() {
 
         {/* Right side actions */}
         <div className="ml-auto flex items-center space-x-3">
-          <AuthButton />
-
+          {/*
+            Sign In and the New Query menu are hidden for now. They belong to the
+            syncable / hosted deployment story (auth + cloud sync) which isn't
+            ready yet. New query tabs can still be created from the Queries
+            sub-nav "Open Tabs" list. Restore <AuthButton /> and the New Query
+            dropdown here once those flows return.
+          */}
           <TierBadge variant="header" />
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="default" size="sm">
-                <Plus className="h-4 w-4 mr-2" />
-                New Query
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleNewSqlTab}>
-                <Database className="h-4 w-4 mr-2" />
-                SQL Editor Tab
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleNewAiTab}>
-                <Sparkles className="h-4 w-4 mr-2" />
-                AI Query Agent
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
 
           <div className="flex items-center space-x-2 border-l pl-3 ml-1">
             <Sun className="h-4 w-4 text-muted-foreground" />
