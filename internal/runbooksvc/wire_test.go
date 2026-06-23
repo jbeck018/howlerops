@@ -43,6 +43,43 @@ func TestDefinitionRoundTrip(t *testing.T) {
 	}
 }
 
+// A list input's ElementType (plus Pattern/Min/Max constraints) must survive the
+// DTO round-trip; dropping ElementType reloads a list-of-integers as
+// list-of-strings, rendering an IN clause as ('1','2') instead of (1,2).
+func TestDefinitionRoundTrip_ListElementTypeAndConstraints(t *testing.T) {
+	d := DefinitionDTO{
+		Name: "typed",
+		Inputs: []InputDTO{
+			{Name: "ids", Type: "list", ElementType: "integer"},
+			{Name: "code", Type: "string", Pattern: "^[A-Z]+$", Min: params.Float(1), Max: params.Float(9)},
+		},
+	}
+	rb := d.ToRunbook()
+	if rb.Inputs[0].ElementType != params.TypeInteger {
+		t.Errorf("ElementType lost in ToRunbook: %+v", rb.Inputs[0])
+	}
+	if rb.Inputs[1].Pattern != "^[A-Z]+$" || rb.Inputs[1].Min == nil || rb.Inputs[1].Max == nil {
+		t.Errorf("Pattern/Min/Max lost in ToRunbook: %+v", rb.Inputs[1])
+	}
+
+	back := DefinitionFromRunbook(&rb)
+	if back.Inputs[0].ElementType != "integer" {
+		t.Errorf("ElementType lost in round-trip: %+v", back.Inputs[0])
+	}
+	if back.Inputs[1].Pattern != "^[A-Z]+$" || back.Inputs[1].Min == nil || back.Inputs[1].Max == nil {
+		t.Errorf("Pattern/Min/Max lost in round-trip: %+v", back.Inputs[1])
+	}
+
+	// End-to-end: an integer list must bind as bare numbers for an IN clause.
+	bound, err := params.Bind("WHERE id IN ({{ids}})", rb.Inputs, map[string]any{"ids": []any{1, 2, 3}}, params.BindOptions{})
+	if err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+	if want := "WHERE id IN (1, 2, 3)"; bound != want {
+		t.Errorf("integer list bound as %q, want %q", bound, want)
+	}
+}
+
 func TestResultToDTO_PreservesOrder(t *testing.T) {
 	res := &runbook.RunResult{
 		Order:  []string{"a", "b", "c"},

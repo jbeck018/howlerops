@@ -17,6 +17,12 @@ type InputDTO struct {
 	Required    bool     `json:"required,omitempty"`
 	Default     any      `json:"default,omitempty"`
 	Options     []string `json:"options,omitempty"`
+	Pattern     string   `json:"pattern,omitempty"`
+	Min         *float64 `json:"min,omitempty"`
+	Max         *float64 `json:"max,omitempty"`
+	// ElementType types the elements of a list input (e.g. "integer" so an IN
+	// clause renders bare numbers, not quoted strings). Empty defaults to string.
+	ElementType string `json:"elementType,omitempty"`
 }
 
 // CellDTO is a single notebook cell.
@@ -50,6 +56,10 @@ func (d DefinitionDTO) ToNotebook() notebook.Notebook {
 			Required:    in.Required,
 			Default:     in.Default,
 			Options:     in.Options,
+			Pattern:     in.Pattern,
+			Min:         in.Min,
+			Max:         in.Max,
+			ElementType: params.Type(in.ElementType),
 		})
 	}
 	for _, c := range d.Cells {
@@ -77,6 +87,10 @@ func DefinitionFromNotebook(nb *notebook.Notebook) DefinitionDTO {
 			Required:    in.Required,
 			Default:     in.Default,
 			Options:     in.Options,
+			Pattern:     in.Pattern,
+			Min:         in.Min,
+			Max:         in.Max,
+			ElementType: string(in.ElementType),
 		})
 	}
 	for _, c := range nb.Cells {

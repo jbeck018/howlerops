@@ -196,11 +196,13 @@ func Execute(ctx context.Context, nb Notebook, inputs map[string]any, qr QueryRu
 // renderText substitutes {{name}} placeholders with the plain (non-SQL-quoted)
 // value of each resolved input, for markdown cells.
 func renderText(template string, resolved map[string]params.Value) string {
-	out := template
-	for name, v := range resolved {
-		out = strings.ReplaceAll(out, "{{"+name+"}}", plainValue(v.Raw()))
-	}
-	return out
+	return params.Substitute(template, func(name string) (string, bool) {
+		v, ok := resolved[name]
+		if !ok {
+			return "", false
+		}
+		return plainValue(v.Raw()), true
+	})
 }
 
 func plainValue(raw any) string {

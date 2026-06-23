@@ -335,11 +335,13 @@ func bindSQL(sql string, defs []params.Definition, inputs map[string]any) (strin
 // human-readable form of each resolved input (no SQL quoting), for notification
 // messages.
 func renderText(template string, resolved map[string]params.Value) string {
-	out := template
-	for name, v := range resolved {
-		out = strings.ReplaceAll(out, "{{"+name+"}}", plainValue(v.Raw()))
-	}
-	return out
+	return params.Substitute(template, func(name string) (string, bool) {
+		v, ok := resolved[name]
+		if !ok {
+			return "", false
+		}
+		return plainValue(v.Raw()), true
+	})
 }
 
 func plainValue(raw any) string {

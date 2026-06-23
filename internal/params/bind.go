@@ -30,6 +30,26 @@ func Placeholders(template string) []string {
 	return out
 }
 
+// Substitute replaces {{name}} placeholders — with optional surrounding
+// whitespace, matching the Placeholders grammar — in template. For each
+// placeholder, render is called with the parameter name; if it returns ok the
+// returned text replaces the placeholder, otherwise the placeholder is left
+// untouched. Substitution is single-pass, so a rendered value that itself
+// contains a placeholder is not re-processed.
+//
+// Use this for plain-text rendering (notify messages, markdown cells) where the
+// {{ name }} spelling must be honored exactly as it is in SQL binding; SQL
+// values still go through Bind, which quotes/escapes them.
+func Substitute(template string, render func(name string) (string, bool)) string {
+	return placeholderRe.ReplaceAllStringFunc(template, func(match string) string {
+		sub := placeholderRe.FindStringSubmatch(match)
+		if v, ok := render(sub[1]); ok {
+			return v
+		}
+		return match
+	})
+}
+
 // Resolve validates raw inputs against the definitions, applying defaults and
 // required checks, and returns the typed values keyed by name. Unknown keys in
 // raw are ignored (a definition is the source of truth); missing required
