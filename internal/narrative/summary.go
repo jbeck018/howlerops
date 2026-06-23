@@ -163,13 +163,20 @@ func summarizeColumn(name string, rows []map[string]interface{}) ColumnSummary {
 // surrounded by whitespace.
 var ssnPattern = regexp.MustCompile(`^\s*\d{3}-\d{2}-\d{4}\s*$`)
 
+// emailPattern matches an email-shaped token: a non-empty local part, an "@",
+// and a non-empty domain part, none of which contain whitespace or a second "@".
+// A dot in the domain is NOT required, so intranet/local addresses like
+// "alice@localhost" are still suppressed — the previous "contains @ and ."
+// heuristic missed those and would have leaked them.
+var emailPattern = regexp.MustCompile(`(^|\s)[^\s@]+@[^\s@]+(\s|$)`)
+
 // looksLikePII reports whether any sampled category value looks like personally
 // identifiable information that must never reach the prompt — currently emails
 // and US SSNs. A single matching value suppresses sampling for the whole column,
 // because mixed identifier columns are still identifier columns.
 func looksLikePII(categories map[string]int) bool {
 	for v := range categories {
-		if strings.Contains(v, "@") && strings.Contains(v, ".") {
+		if emailPattern.MatchString(v) {
 			return true
 		}
 		if ssnPattern.MatchString(v) {

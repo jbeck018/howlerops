@@ -139,6 +139,40 @@ func TestApply_NoFiltersIsNoop(t *testing.T) {
 	}
 }
 
+func TestApply_LargeIntegerKeepsPrecision(t *testing.T) {
+	// Integer filter values beyond float64's 2^53 exact range must render
+	// exactly; rendering through the float path would round 9007199254740993
+	// down to 9007199254740992 and silently match the wrong row.
+	report, comp := fixture(
+		[]storage.ReportFilterField{{Key: "id", Type: "number"}},
+		[]string{"id"},
+	)
+	got, err := Apply("WHERE id = {{id}}", report, comp, map[string]interface{}{
+		"id": int64(9007199254740993),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "WHERE id = 9007199254740993" {
+		t.Errorf("got %q, want exact integer rendering", got)
+	}
+
+	// The same must hold inside an IN list.
+	report2, comp2 := fixture(
+		[]storage.ReportFilterField{{Key: "ids", Type: "multiselect"}},
+		[]string{"ids"},
+	)
+	got2, err := Apply("WHERE id IN ({{ids}})", report2, comp2, map[string]interface{}{
+		"ids": []interface{}{int64(9007199254740993), int64(2)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2 != "WHERE id IN (9007199254740993, 2)" {
+		t.Errorf("got %q, want exact integer rendering in list", got2)
+	}
+}
+
 func TestApply_TimestampValue(t *testing.T) {
 	report, comp := fixture(
 		[]storage.ReportFilterField{{Key: "since", Type: "date"}},

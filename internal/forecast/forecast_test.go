@@ -264,6 +264,32 @@ func TestDetectAnomalies_IQRDegenerateScale(t *testing.T) {
 	}
 }
 
+func TestDetectAnomalies_IQRDegenerateScaleNegativeSpike(t *testing.T) {
+	// Same degenerate (IQR == 0) setup but with a downward spike: the reported
+	// score must be negative, guarding the signed-infinity branch.
+	vals := make([]float64, 30)
+	for i := range vals {
+		vals[i] = 20
+	}
+	vals[15] = -500
+	anoms, err := DetectAnomalies(day(vals...), AnomalyOptions{Method: AnomalyIQR, Threshold: 1.5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spike *Anomaly
+	for i := range anoms {
+		if anoms[i].Index == 15 {
+			spike = &anoms[i]
+		}
+	}
+	if spike == nil {
+		t.Fatalf("expected downward spike at index 15 to be flagged, got %+v", anoms)
+	}
+	if math.IsNaN(spike.Score) || spike.Score >= 0 {
+		t.Errorf("negative spike should have a negative score, got %v", spike.Score)
+	}
+}
+
 func TestInferPeriod(t *testing.T) {
 	p, err := inferPeriod(day(1, 2, 3, 4))
 	if err != nil {

@@ -99,6 +99,28 @@ func TestBuildPrompt_NoPIILeakWhenLowCardinality(t *testing.T) {
 	}
 }
 
+// TestBuildPrompt_NoLeakDotlessEmail guards the gap the earlier "contains @ and
+// ." email heuristic missed: intranet/local addresses without a dot in the
+// domain (e.g. alice@localhost) are still PII and must never be sampled, even
+// when they repeat and are thus low-cardinality.
+func TestBuildPrompt_NoLeakDotlessEmail(t *testing.T) {
+	cols := []string{"contact", "region"}
+	rows := []map[string]interface{}{
+		{"contact": "alice@localhost", "region": "west"},
+		{"contact": "alice@localhost", "region": "east"},
+		{"contact": "bob@intranet", "region": "west"},
+	}
+	prompt := BuildPrompt(BriefInput{Title: "Contacts", Summary: Summarize(cols, rows)})
+	for _, leak := range []string{"alice@localhost", "bob@intranet"} {
+		if strings.Contains(prompt, leak) {
+			t.Errorf("prompt leaked dotless email %q:\n%s", leak, prompt)
+		}
+	}
+	if !strings.Contains(prompt, "west") {
+		t.Errorf("expected non-PII categorical to still be sampled:\n%s", prompt)
+	}
+}
+
 func TestBrief_UsesChatFuncAndSystemPrompt(t *testing.T) {
 	var gotSystem, gotPrompt string
 	g := New(func(_ context.Context, system, prompt string) (string, error) {

@@ -164,6 +164,35 @@ func TestRunbookStore_UpdateRunState(t *testing.T) {
 	}
 }
 
+func TestRunbookStore_UpsertPreservesRunState(t *testing.T) {
+	store := newRunbookStore(t)
+	rb := &Runbook{Name: "rb", Definition: json.RawMessage(`{"v":1}`)}
+	if err := store.SaveRunbook(rb); err != nil {
+		t.Fatal(err)
+	}
+	when := time.Now().UTC().Truncate(time.Second)
+	if err := store.UpdateRunState(rb.ID, "success", when); err != nil {
+		t.Fatal(err)
+	}
+
+	// A plain edit (new definition, no run state) must not clobber the
+	// recorded last-run status/time.
+	edit := &Runbook{ID: rb.ID, Name: "rb-renamed", Definition: json.RawMessage(`{"v":2}`)}
+	if err := store.SaveRunbook(edit); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetRunbook(rb.ID)
+	if got.Name != "rb-renamed" || string(got.Definition) != `{"v":2}` {
+		t.Errorf("edit did not persist: %+v", got)
+	}
+	if got.LastRunStatus != "success" {
+		t.Errorf("last_run_status wiped on edit: %q", got.LastRunStatus)
+	}
+	if got.LastRunAt == nil || !got.LastRunAt.Equal(when) {
+		t.Errorf("last_run_at wiped/changed on edit: %v", got.LastRunAt)
+	}
+}
+
 func TestRunbookStore_RunHistory(t *testing.T) {
 	store := newRunbookStore(t)
 	rb := &Runbook{Name: "rb", Definition: json.RawMessage(`{}`)}

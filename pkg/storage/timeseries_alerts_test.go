@@ -141,6 +141,37 @@ func TestTimeSeriesAlertStore_SetEnabledAndDelete(t *testing.T) {
 	}
 }
 
+func TestTimeSeriesAlertStore_UpsertPreservesLastFired(t *testing.T) {
+	store := newAlertStore(t)
+	a := sampleAlert()
+	if err := store.Save(a); err != nil {
+		t.Fatal(err)
+	}
+	when := time.Now().UTC().Truncate(time.Second)
+	if err := store.RecordFired(a.ID, when); err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-save the alert with no LastFiredAt (the shape a plain edit takes):
+	// the recorded firing time must survive.
+	edit := sampleAlert()
+	edit.ID = a.ID
+	edit.Name = "renamed"
+	if err := store.Save(edit); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.Get(a.ID)
+	if got.Name != "renamed" {
+		t.Errorf("edit did not persist: %q", got.Name)
+	}
+	if got.LastFiredAt == nil {
+		t.Fatal("last_fired_at was wiped on edit")
+	}
+	if !got.LastFiredAt.Equal(when) {
+		t.Errorf("last_fired_at changed: got %v want %v", got.LastFiredAt, when)
+	}
+}
+
 func TestTimeSeriesAlertStore_RecordFired(t *testing.T) {
 	store := newAlertStore(t)
 	a := sampleAlert()

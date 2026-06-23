@@ -67,7 +67,12 @@ func inferParamType(v interface{}) params.Type {
 		return params.TypeTimestamp
 	case []interface{}, []string:
 		return params.TypeList
-	case int, int32, int64, float32, float64:
+	case int, int32, int64:
+		// Integers render via the integer path so large values (beyond
+		// float64's 2^53 exact range) are not silently rounded, which would
+		// otherwise produce a WHERE clause matching the wrong row.
+		return params.TypeInteger
+	case float32, float64:
 		return params.TypeNumber
 	default:
 		return params.TypeString

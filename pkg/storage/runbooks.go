@@ -122,7 +122,15 @@ func (s *RunbookStore) SaveRunbook(rb *Runbook) error {
 	if rb.LastRunAt != nil {
 		lastRun = rb.LastRunAt.UTC()
 	}
+	var lastRunStatus interface{}
+	if rb.LastRunStatus != "" {
+		lastRunStatus = rb.LastRunStatus
+	}
 
+	// On update, preserve the existing run state when the incoming record does
+	// not carry one. A plain edit of a runbook (rename, redefine) goes through
+	// SaveRunbook with empty last-run fields, and must not clobber the run
+	// history recorded by UpdateRunState.
 	query := `
 INSERT INTO runbooks (id, name, description, definition, last_run_at, last_run_status, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -130,12 +138,12 @@ ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
 	description = excluded.description,
 	definition = excluded.definition,
-	last_run_at = excluded.last_run_at,
-	last_run_status = excluded.last_run_status,
+	last_run_at = COALESCE(excluded.last_run_at, last_run_at),
+	last_run_status = COALESCE(excluded.last_run_status, last_run_status),
 	updated_at = excluded.updated_at;
 `
 	_, err := s.db.Exec(query, rb.ID, rb.Name, rb.Description, string(rb.Definition),
-		lastRun, rb.LastRunStatus, rb.CreatedAt, rb.UpdatedAt)
+		lastRun, lastRunStatus, rb.CreatedAt, rb.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to save runbook: %w", err)
 	}

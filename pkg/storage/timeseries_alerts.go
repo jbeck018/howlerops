@@ -119,7 +119,7 @@ ON CONFLICT(id) DO UPDATE SET
 	interval_seconds = excluded.interval_seconds,
 	channel = excluded.channel,
 	enabled = excluded.enabled,
-	last_fired_at = excluded.last_fired_at,
+	last_fired_at = COALESCE(excluded.last_fired_at, last_fired_at),
 	updated_at = excluded.updated_at;`,
 		a.ID, a.Name, a.ConnectionID, a.SQL, a.TimeColumn, a.ValueColumn, string(a.Rule),
 		a.IntervalSeconds, a.Channel, a.Enabled, lastFired, a.CreatedAt, a.UpdatedAt)
