@@ -4,6 +4,8 @@ import { Loader2 } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo } from 'react'
 import { HashRouter as Router, Navigate,Route, Routes } from 'react-router-dom'
 
+import { useAlertNotifications } from '@/hooks/use-alerts'
+
 import { ProtectedRoute } from './components/auth/protected-route'
 import { ErrorBoundary } from './components/error-boundary'
 import { MainLayout } from './components/layout/main-layout'
@@ -25,6 +27,9 @@ const Settings = lazy(() => import('./pages/settings').then(m => ({ default: m.S
 const InviteAcceptPage = lazy(() => import('./pages/invite-accept-page').then(m => ({ default: m.InviteAcceptPage })))
 const PendingInvitationsPage = lazy(() => import('./pages/pending-invitations').then(m => ({ default: m.PendingInvitationsPage })))
 const ReportsPage = lazy(() => import('./pages/reports')) // Has both named and default export
+const RunbooksPage = lazy(() => import('./pages/runbooks'))
+const NotebooksPage = lazy(() => import('./pages/notebooks'))
+const AlertsPage = lazy(() => import('./pages/alerts'))
 const SchemaDiff = lazy(() => import('./pages/schema-diff').then(m => ({ default: m.SchemaDiff })))
 const DataCatalog = lazy(() => import('./pages/data-catalog').then(m => ({ default: m.DataCatalog })))
 const AuthPage = lazy(() => import('./pages/auth-page').then(m => ({ default: m.AuthPage })))
@@ -45,6 +50,9 @@ function App() {
 
   // Run IndexedDB to SQLite migration on startup (non-blocking)
   useMigrateToSQLite()
+
+  // Surface fired time-series alerts as toasts.
+  useAlertNotifications()
 
   // Initialize stores and migrate credentials on app startup
   useEffect(() => {
@@ -89,6 +97,9 @@ function App() {
             <Route path="/settings" element={<Settings />} />
             <Route path="/invitations" element={<PendingInvitationsPage />} />
             <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/runbooks" element={<RunbooksPage />} />
+            <Route path="/notebooks" element={<NotebooksPage />} />
+            <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/schema-diff" element={<SchemaDiff />} />
             <Route path="/data-catalog" element={<DataCatalog />} />
             <Route path="/shared" element={<SharedResourcesPage />} />
