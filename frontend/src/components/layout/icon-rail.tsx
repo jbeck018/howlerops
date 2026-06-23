@@ -41,7 +41,12 @@ export function IconRail() {
                 {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="right">{collapsed ? "Expand sidebar" : "Collapse sidebar"}</TooltipContent>
+            {/* "always" keeps the tooltip tracking its trigger across layout
+                shifts (e.g. the invitation banner mounting above the rail),
+                which Radix's default autoUpdate doesn't catch. */}
+            <TooltipContent side="right" updatePositionStrategy="always">
+              {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            </TooltipContent>
           </Tooltip>
         )}
 
@@ -72,7 +77,9 @@ export function IconRail() {
                   <Icon className="h-5 w-5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right">{item.label}</TooltipContent>
+              <TooltipContent side="right" updatePositionStrategy="always">
+                {item.label}
+              </TooltipContent>
             </Tooltip>
           )
         })}
