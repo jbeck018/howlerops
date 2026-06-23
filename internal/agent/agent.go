@@ -85,6 +85,7 @@ You can call these tools:
 - get_schema: fetch the tables and columns for the active connection. Call this before writing SQL unless the schema is already provided in context.
 - run_sql: execute a single READ-ONLY SQL SELECT (or CTE) statement and get rows back. Never attempt INSERT/UPDATE/DELETE/DDL.
 - search_memory: recall relevant context, prior queries, and saved knowledge from memory.
+- forecast: project a numeric time series into the future (with confidence intervals) and flag historical anomalies. Pass a read-only SQL query that returns a timestamp column and a numeric value column. Use it for trend/projection questions ("what will revenue be next month") and outlier detection.
 
 Guidelines:
 - To answer data questions, prefer running a query over guessing. Never fabricate rows or results.
@@ -248,7 +249,12 @@ func (e *Engine) buildTools(rs *runState, connectionID string, maxRows int) ([]t
 		return nil, err
 	}
 
-	return []tool.BaseTool{getSchema, runSQL, searchMemory}, nil
+	forecastTool, err := e.buildForecastTool(rs, connectionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return []tool.BaseTool{getSchema, runSQL, searchMemory, forecastTool}, nil
 }
 
 func buildSystemPrompt(in Input) string {

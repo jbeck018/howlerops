@@ -1,16 +1,18 @@
-import { AlertCircle, BarChart3, Clock, Database, Link2, RotateCcw, Wand2 } from 'lucide-react'
+import { AlertCircle, BarChart3, Clock, Database, Link2, RotateCcw, Sparkles, Wand2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import { DataProcessingIndicator } from '@/components/data-processing-indicator'
 import { QueryLoadingIndicator } from '@/components/query-loading-indicator'
 import { QueryResultsTable } from '@/components/query-results-table'
+import { InsightBriefPanel } from '@/components/reports/insight-brief-panel'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useQueryActionsOptional } from '@/contexts'
+import { useInsightBrief } from '@/hooks/use-insight-brief'
 import { useAIConfig } from '@/store/ai-store'
 import { useConnectionStore } from '@/store/connection-store'
 import { useQueryEditorStore } from '@/store/query-editor-store'
@@ -53,6 +55,10 @@ export function ResultsPanel({ onFixWithAI: propOnFixWithAI, onPageChange: propO
 
   const { isEnabled: aiEnabled } = useAIConfig()
   const [showHistory, setShowHistory] = useState(false)
+
+  const insightBrief = useInsightBrief()
+  const canGenerateInsight =
+    aiEnabled && Boolean(activeTab?.connectionId) && Boolean(activeTab?.content?.trim())
 
   useEffect(() => {
     if (!hasHistory && showHistory) {
@@ -166,6 +172,12 @@ export function ResultsPanel({ onFixWithAI: propOnFixWithAI, onPageChange: propO
             className="flex-1 select-none whitespace-nowrap px-3 text-sm font-medium leading-none text-muted-foreground transition-colors data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=inactive]:border-b-2 data-[state=inactive]:border-transparent"
           >
             Execution
+          </TabsTrigger>
+          <TabsTrigger
+            value="insights"
+            className="flex-1 select-none whitespace-nowrap px-3 text-sm font-medium leading-none text-muted-foreground transition-colors data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=inactive]:border-b-2 data-[state=inactive]:border-transparent"
+          >
+            Insights
           </TabsTrigger>
         </TabsList>
 
@@ -476,6 +488,45 @@ export function ResultsPanel({ onFixWithAI: propOnFixWithAI, onPageChange: propO
                 )}
               </Card>
             )}
+          </div>
+        </TabsContent>
+
+        <TabsContent
+          value="insights"
+          className="flex flex-1 min-h-0 flex-col overflow-auto px-3 py-2 data-[state=inactive]:hidden"
+        >
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                Generate an AI insight brief (narrative + forecast) for the current query.
+              </p>
+              <Button
+                size="sm"
+                disabled={!canGenerateInsight || insightBrief.loading}
+                onClick={() => {
+                  if (activeTab?.connectionId && activeTab?.content) {
+                    void insightBrief.run({
+                      connectionId: activeTab.connectionId,
+                      sql: activeTab.content,
+                      forecast: true,
+                    })
+                  }
+                }}
+              >
+                <Sparkles className="mr-1.5 h-4 w-4" />
+                {insightBrief.loading ? 'Generating…' : 'Generate Brief'}
+              </Button>
+            </div>
+            {!aiEnabled && (
+              <p className="text-xs text-muted-foreground">
+                Enable AI in settings to use insight briefs.
+              </p>
+            )}
+            <InsightBriefPanel
+              brief={insightBrief.brief}
+              loading={insightBrief.loading}
+              error={insightBrief.error}
+            />
           </div>
         </TabsContent>
       </Tabs>

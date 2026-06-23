@@ -1,306 +1,192 @@
-# Howlerops Installation Guide
+# HowlerOps Installation Guide
 
-Howlerops provides a universal installation script that works across macOS, Linux, and Windows (Git Bash/WSL).
+HowlerOps ships a universal installation script that detects your platform and
+installs the right artifact: the **HowlerOps desktop app** on macOS (Apple
+Silicon) and the **`howlerops` CLI** on Linux.
 
 ## Quick Install
 
-The fastest way to install Howlerops is using our installation script:
+The fastest way to install HowlerOps is the installation script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh | sh
 ```
 
 This will:
 - Detect your OS and architecture
-- Download the appropriate binary
-- Verify checksums for security
-- Install to `~/.local/bin` (or `/usr/local/bin` if needed)
+- Download the appropriate release artifact
+- Verify SHA256 checksums for security
+- Install to `~/.local/bin` (CLI) or `/Applications` (macOS app), falling back as needed
 - Update your PATH if necessary
+
+## Supported Platforms
+
+| Operating System            | What gets installed   | Status                         |
+|-----------------------------|-----------------------|--------------------------------|
+| macOS — Apple Silicon (arm64) | `HowlerOps.app` desktop app | ✅ Published |
+| Linux — x86_64 (amd64)      | `howlerops` CLI       | ✅ Published                   |
+| Linux — arm64               | `howlerops` CLI       | ✅ Published                   |
+| macOS — Intel (amd64)       | —                     | ⏸️ Paused (build matrix disabled) |
+| Windows — native            | —                     | ❌ Not published — use WSL or build from source |
+
+> **Windows:** native binaries are not published. Run HowlerOps under **WSL**
+> (which uses the Linux CLI) or **build from source**. The build excludes the
+> DuckDB federation engine on platforms without DuckDB bindings.
+>
+> **Intel macOS:** temporarily paused because the `macos-13` runners queue for a
+> long time and stall releases. Re-add the `darwin/amd64` matrix entries in
+> `.github/workflows/release.yml` to restore Intel builds.
 
 ## Installation Options
 
 ### Install a Specific Version
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh -s -- --version v2.0.0
-```
-
-### Install to Custom Directory
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh -s -- --install-dir /usr/local/bin
+curl -fsSL https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh | sh -s -- --version v0.17.0
 ```
 
 ### Dry Run (Preview Without Installing)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh -s -- --dry-run
+curl -fsSL https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh | sh -s -- --dry-run
 ```
 
 ### Verbose Output
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh -s -- --verbose
+curl -fsSL https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh | sh -s -- --verbose
 ```
 
 ### Force Reinstall
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh -s -- --force
-```
-
-## Supported Platforms
-
-| Operating System | Architectures |
-|-----------------|---------------|
-| macOS (Darwin)  | x86_64 (Intel), arm64 (Apple Silicon) |
-| Linux           | x86_64, arm64, arm |
-| Windows         | x86_64, arm64 (via Git Bash/WSL) |
-
-## Environment Variables
-
-You can also configure the installation using environment variables:
-
-```bash
-# Set custom installation directory
-export INSTALL_DIR="$HOME/bin"
-curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh
-
-# Install specific version
-export VERSION="v2.0.0"
-curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/howlerops/howlerops/main/install.sh | sh -s -- --force
 ```
 
 ## Manual Installation
 
-If you prefer to install manually:
+If you prefer to install manually, download the matching artifact from the
+[GitHub Releases](https://github.com/howlerops/howlerops/releases) page.
 
-1. **Download the binary for your platform:**
+### macOS desktop app (Apple Silicon)
 
-   Visit [GitHub Releases](https://github.com/sql-studio/sql-studio/releases) and download the appropriate archive:
-   - macOS Intel: `sql-studio-darwin-amd64.tar.gz`
-   - macOS Apple Silicon: `sql-studio-darwin-arm64.tar.gz`
-   - Linux x86_64: `sql-studio-linux-amd64.tar.gz`
-   - Linux ARM64: `sql-studio-linux-arm64.tar.gz`
+```bash
+# Download the app bundle archive
+curl -LO https://github.com/howlerops/howlerops/releases/latest/download/howlerops-darwin-arm64.tar.gz
 
-2. **Verify the checksum (recommended):**
+# Extract and move into place
+tar -xzf howlerops-darwin-arm64.tar.gz
+mv HowlerOps.app /Applications/
+```
 
-   ```bash
-   # Download checksums.txt
-   wget https://github.com/sql-studio/sql-studio/releases/download/v2.0.0/checksums.txt
+The app is not notarized for distribution outside the App Store yet, so on first
+launch you may need to right-click → **Open** (or allow it under **System
+Settings → Privacy & Security**).
 
-   # Verify (macOS)
-   shasum -a 256 -c checksums.txt
+### Linux CLI
 
-   # Verify (Linux)
-   sha256sum -c checksums.txt
-   ```
+```bash
+# Pick the archive for your architecture
+curl -LO https://github.com/howlerops/howlerops/releases/latest/download/howlerops-cli-linux-amd64.tar.gz
+# or: howlerops-cli-linux-arm64.tar.gz
 
-3. **Extract the archive:**
+tar -xzf howlerops-cli-linux-amd64.tar.gz
+chmod +x howlerops
+mv howlerops ~/.local/bin/   # or: sudo mv howlerops /usr/local/bin/
+```
 
-   ```bash
-   tar -xzf sql-studio-*.tar.gz
-   ```
+### Verify the checksum (recommended)
 
-4. **Move to a directory in your PATH:**
+Each artifact ships an accompanying `.sha256` file, and releases include a
+combined `checksums.txt`:
 
-   ```bash
-   mv sql-studio ~/.local/bin/
-   # or
-   sudo mv sql-studio /usr/local/bin/
-   ```
-
-5. **Make it executable:**
-
-   ```bash
-   chmod +x ~/.local/bin/sql-studio
-   ```
+```bash
+# Verify a single archive
+curl -LO https://github.com/howlerops/howlerops/releases/latest/download/howlerops-cli-linux-amd64.tar.gz.sha256
+sha256sum -c howlerops-cli-linux-amd64.tar.gz.sha256   # Linux
+shasum -a 256 -c howlerops-cli-linux-amd64.tar.gz.sha256  # macOS
+```
 
 ## Updating PATH
 
-If the installation directory is not in your PATH, add it to your shell profile:
-
-### Bash
+If the install directory is not in your PATH, add it to your shell profile:
 
 ```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-```
+# Bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 
-### Zsh
+# Zsh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 
-```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-### Fish
-
-```bash
+# Fish
 set -Ua fish_user_paths $HOME/.local/bin
 ```
 
 ## Verifying Installation
 
-After installation, verify it works:
-
 ```bash
-# Check version
-sql-studio --version
-
-# View help
-sql-studio --help
-
-# Run Howlerops
-sql-studio
+# CLI
+howlerops --version
+howlerops --help
 ```
 
-## Uninstalling
+## Build from Source
 
-To remove Howlerops:
+Building from source works on any platform with a Go toolchain (and a C
+compiler, since SQLite uses CGO). See the
+[Development section of the README](../README.md#development) for the full setup.
 
 ```bash
-# Remove the binary
-rm ~/.local/bin/sql-studio
-# or
-sudo rm /usr/local/bin/sql-studio
+git clone https://github.com/howlerops/howlerops.git
+cd howlerops
+make deps
+make build      # desktop app (Wails v3)
 ```
 
 ## Troubleshooting
 
+### Platform Not Supported / Download 404
+
+`install.sh` only finds an artifact for the published platforms above. If you
+see "Unsupported platform" or a download 404:
+
+- On **Windows**, run the script inside **WSL**, or build from source.
+- On **Intel macOS**, builds are paused — build from source or use a release that
+  still published `darwin-amd64`.
+
 ### Permission Denied
 
-If you get a "permission denied" error:
-
 ```bash
-# Make the binary executable
-chmod +x ~/.local/bin/sql-studio
+chmod +x ~/.local/bin/howlerops
 ```
 
 ### Command Not Found
 
-If you get "command not found":
-
-1. Check if the binary is in your PATH:
-   ```bash
-   which sql-studio
-   ```
-
-2. If not found, add the installation directory to PATH (see above)
-
-### Download Failures
-
-If downloads fail:
-
-- Check your internet connection
-- Verify the repository has releases
-- Try specifying a version explicitly: `--version v2.0.0`
-- Use verbose mode to see detailed error messages: `--verbose`
-
-### Platform Not Supported
-
-If you see "Unsupported platform":
-
-- Check the [supported platforms](#supported-platforms) list
-- File an issue on [GitHub](https://github.com/sql-studio/sql-studio/issues) requesting support for your platform
+```bash
+which howlerops    # confirm it is on PATH; add the install dir if not
+```
 
 ### Checksum Verification Failed
 
-If checksum verification fails:
-
-- Try downloading again (may be a corrupted download)
-- Verify you're downloading from the official GitHub releases
-- Report the issue if it persists
-
-## Advanced Usage
-
-### Behind a Proxy
-
-If you're behind a corporate proxy:
-
-```bash
-# For curl
-export https_proxy=http://proxy.example.com:8080
-curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh
-
-# For wget
-export https_proxy=http://proxy.example.com:8080
-wget -qO- https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh
-```
-
-### Air-Gapped Installation
-
-For systems without internet access:
-
-1. Download the binary and checksums on a connected machine
-2. Transfer files to the air-gapped system
-3. Follow the [manual installation](#manual-installation) steps
-
-### CI/CD Integration
-
-Example GitHub Actions workflow:
-
-```yaml
-- name: Install Howlerops
-  run: |
-    curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh -s -- --version v2.0.0
-    echo "$HOME/.local/bin" >> $GITHUB_PATH
-```
-
-Example GitLab CI:
-
-```yaml
-install_sql_studio:
-  script:
-    - curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh -s -- --version v2.0.0
-    - export PATH="$HOME/.local/bin:$PATH"
-```
-
-## Docker Installation
-
-For Docker users, use the official image:
-
-```dockerfile
-FROM sql-studio/sql-studio:latest
-# or specific version
-FROM sql-studio/sql-studio:v2.0.0
-```
-
-Or install in your own image:
-
-```dockerfile
-FROM ubuntu:22.04
-
-RUN apt-get update && apt-get install -y curl ca-certificates && \
-    curl -fsSL https://raw.githubusercontent.com/sql-studio/sql-studio/main/install.sh | sh && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-ENV PATH="/root/.local/bin:${PATH}"
-```
+Re-download (the transfer may have been corrupted) and confirm you are pulling
+from the official GitHub releases. Report the issue if it persists.
 
 ## Security
 
 The installation script:
 
-- Downloads binaries only from official GitHub releases
-- Verifies SHA256 checksums before installation
-- Uses HTTPS for all downloads
-- Requires minimal permissions (no sudo unless necessary)
+- Downloads artifacts only from official GitHub releases over HTTPS
+- Verifies SHA256 checksums before installing
+- Requires no `sudo` unless writing to a system directory
 
-For maximum security:
-
-1. Review the installation script before running
-2. Always verify checksums manually
-3. Pin to specific versions in production
-4. Use GPG signatures when available (coming soon)
+For maximum safety, review the script before piping it to a shell, pin to a
+specific `--version` in automation, and verify checksums manually.
 
 ## Getting Help
 
-- **Documentation:** https://docs.sqlstudio.io
-- **Issues:** https://github.com/sql-studio/sql-studio/issues
-- **Discussions:** https://github.com/sql-studio/sql-studio/discussions
-- **Discord:** https://discord.gg/sqlstudio (if applicable)
+- **Issues:** https://github.com/howlerops/howlerops/issues
+- **Releases:** https://github.com/howlerops/howlerops/releases
 
 ## License
 
-Howlerops is released under the MIT License. See [LICENSE](../LICENSE) for details.
+HowlerOps is released under the MIT License. See [LICENSE](../LICENSE) for details.
