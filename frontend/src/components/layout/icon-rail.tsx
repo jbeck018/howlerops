@@ -24,7 +24,7 @@ export function IconRail() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="w-12 flex-shrink-0 border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex flex-col items-stretch py-2">
+      <div className="group/rail w-12 flex-shrink-0 border-r bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex flex-col items-stretch py-2">
         {showToggle && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -33,12 +33,20 @@ export function IconRail() {
                 aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                 aria-pressed={collapsed}
                 onClick={toggleContextPanel}
-                className="relative flex h-11 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                // Keep this control unobtrusive: hidden until the rail is hovered
+                // (or the button is keyboard-focused) so the top of the rail
+                // isn't crowded, in both collapsed and expanded states.
+                className="relative flex h-11 items-center justify-center text-muted-foreground opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-muted/50 hover:text-foreground focus-visible:opacity-100 group-hover/rail:opacity-100"
               >
                 {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="right">{collapsed ? "Expand sidebar" : "Collapse sidebar"}</TooltipContent>
+            {/* "always" keeps the tooltip tracking its trigger across layout
+                shifts (e.g. the invitation banner mounting above the rail),
+                which Radix's default autoUpdate doesn't catch. */}
+            <TooltipContent side="right" updatePositionStrategy="always">
+              {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            </TooltipContent>
           </Tooltip>
         )}
 
@@ -69,7 +77,9 @@ export function IconRail() {
                   <Icon className="h-5 w-5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right">{item.label}</TooltipContent>
+              <TooltipContent side="right" updatePositionStrategy="always">
+                {item.label}
+              </TooltipContent>
             </Tooltip>
           )
         })}
