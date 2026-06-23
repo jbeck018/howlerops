@@ -1,4 +1,4 @@
-import { Play } from 'lucide-react'
+import { Pencil, Play, Plus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { ParamForm } from '@/components/shared/param-form'
@@ -10,6 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useNotebookRun, useNotebooks } from '@/hooks/use-notebook'
 import { type NotebookCellResult } from '@/lib/notebook-api'
 import { defaultValues, type ParamValues } from '@/lib/param-types'
+
+import { NotebookEditorDialog } from './notebook-editor-dialog'
 
 function CellOutput({ cell }: { cell: NotebookCellResult }) {
   if (cell.kind === 'markdown') {
@@ -74,10 +76,31 @@ export function NotebookPanel() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [values, setValues] = useState<ParamValues>({})
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   useEffect(() => {
     if (selectedId) void load(selectedId)
   }, [selectedId, load])
+
+  const openNew = () => {
+    setEditing(false)
+    setEditorOpen(true)
+  }
+
+  const openEdit = () => {
+    setEditing(true)
+    setEditorOpen(true)
+  }
+
+  const handleSaved = (id: string) => {
+    void refresh()
+    if (id === selectedId) {
+      void load(id)
+    } else {
+      setSelectedId(id)
+    }
+  }
 
   useEffect(() => {
     // Reseed values when the definition changes; clear stale values when the new
@@ -96,9 +119,15 @@ export function NotebookPanel() {
       <Card className="w-64 shrink-0 overflow-auto">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-sm">Notebooks</CardTitle>
-          <Button size="sm" variant="ghost" onClick={() => void refresh()}>
-            Refresh
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="ghost" onClick={() => void refresh()}>
+              Refresh
+            </Button>
+            <Button size="sm" onClick={openNew}>
+              <Plus className="mr-1 h-3.5 w-3.5" />
+              New
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-1">
           {listing && <p className="text-xs text-muted-foreground">Loading…</p>}
@@ -119,8 +148,14 @@ export function NotebookPanel() {
       </Card>
 
       <Card className="flex-1 overflow-auto">
-        <CardHeader className="pb-2">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-sm">{definition?.name ?? 'Select a notebook'}</CardTitle>
+          {definition && (
+            <Button size="sm" variant="outline" onClick={openEdit}>
+              <Pencil className="mr-1 h-3.5 w-3.5" />
+              Edit
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           {loading && <p className="text-xs text-muted-foreground">Loading…</p>}
@@ -156,6 +191,13 @@ export function NotebookPanel() {
           )}
         </CardContent>
       </Card>
+
+      <NotebookEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        initial={editing ? definition : null}
+        onSaved={handleSaved}
+      />
     </div>
   )
 }
