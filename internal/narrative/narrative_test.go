@@ -77,6 +77,28 @@ func TestBuildPrompt_ContainsAggregatesNotRawRows(t *testing.T) {
 	}
 }
 
+// TestBuildPrompt_NoPIILeakWhenLowCardinality guards the case the cardinality
+// heuristic alone misses: a small result set where a PII value repeats, so it is
+// genuinely low-cardinality yet must still never be sampled into the prompt.
+func TestBuildPrompt_NoPIILeakWhenLowCardinality(t *testing.T) {
+	cols := []string{"email", "ssn", "region"}
+	rows := []map[string]interface{}{
+		{"email": "alice@example.com", "ssn": "111-11-1111", "region": "west"},
+		{"email": "alice@example.com", "ssn": "111-11-1111", "region": "east"},
+		{"email": "bob@example.com", "ssn": "222-22-2222", "region": "west"},
+	}
+	prompt := BuildPrompt(BriefInput{Title: "Customers", Summary: Summarize(cols, rows)})
+	for _, leak := range []string{"alice@example.com", "bob@example.com", "111-11-1111", "222-22-2222"} {
+		if strings.Contains(prompt, leak) {
+			t.Errorf("prompt leaked PII %q despite low cardinality:\n%s", leak, prompt)
+		}
+	}
+	// Genuine categoricals are still summarised.
+	if !strings.Contains(prompt, "west") {
+		t.Errorf("expected non-PII categorical to still be sampled:\n%s", prompt)
+	}
+}
+
 func TestBrief_UsesChatFuncAndSystemPrompt(t *testing.T) {
 	var gotSystem, gotPrompt string
 	g := New(func(_ context.Context, system, prompt string) (string, error) {

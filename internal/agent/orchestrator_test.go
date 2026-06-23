@@ -43,6 +43,12 @@ func TestKeywordRouter_FallsBackToFirst(t *testing.T) {
 	}
 }
 
+func TestKeywordRouter_EmptySpecialists(t *testing.T) {
+	if _, err := KeywordRouter(context.Background(), "anything", nil); err == nil {
+		t.Error("expected error (not a panic) for empty specialists")
+	}
+}
+
 func TestOrchestrator_RoutesAndAppliesPrompt(t *testing.T) {
 	e := New(fakeTools{})
 	// Deterministic router that always picks the forecaster.

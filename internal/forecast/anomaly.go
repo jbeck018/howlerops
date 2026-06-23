@@ -125,8 +125,13 @@ func scoreResiduals(data Series, values, fitted, residuals []float64, idx []int,
 			if r < lowCut || r > highCut {
 				flagged = true
 			}
+			center := (highCut + lowCut) / 2
 			if scaleW := (highCut - lowCut) / 2; scaleW > 0 {
-				score = (r - (highCut+lowCut)/2) / scaleW
+				score = (r - center) / scaleW
+			} else if flagged {
+				// Degenerate IQR (all residuals equal): a value outside the
+				// collapsed band is infinitely far in robust-deviation terms.
+				score = math.Inf(map1(r - center))
 			}
 		} else {
 			if scale > 0 {

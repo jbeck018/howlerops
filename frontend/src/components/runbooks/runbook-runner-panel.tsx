@@ -71,9 +71,9 @@ export function RunbookRunnerPanel() {
   }, [selectedId, load, reset])
 
   useEffect(() => {
-    if (definition?.inputs) {
-      setValues(defaultValues(definition.inputs))
-    }
+    // Reseed values whenever the loaded definition changes; clear stale values
+    // when the new runbook has no inputs so we never submit a prior runbook's data.
+    setValues(definition?.inputs ? defaultValues(definition.inputs) : {})
   }, [definition])
 
   const hasWrites = useMemo(

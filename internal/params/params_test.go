@@ -48,6 +48,47 @@ func TestBind_EscapesStringSafely(t *testing.T) {
 	}
 }
 
+func TestBind_EscapesBackslashForMySQLDialect(t *testing.T) {
+	// On MySQL (NO_BACKSLASH_ESCAPES off) and ClickHouse, backslash is an escape
+	// character inside string literals. A value ending in a lone backslash, with
+	// only quote-doubling, would render as '\'' — the backslash escapes the
+	// closing quote and the string runs on, allowing break-out. The renderer must
+	// double backslashes so the literal stays terminated on every dialect.
+	defs := []Definition{
+		{Name: "a", Type: TypeString, Required: true},
+		{Name: "b", Type: TypeString, Required: true},
+	}
+	// Classic break-out attempt: trailing backslash then a second value that, on a
+	// vulnerable escaper, would land outside the first literal.
+	raw := map[string]interface{}{"a": `x\`, "b": " OR 1=1 -- "}
+	got, err := Bind("WHERE a={{a}} AND b={{b}}", defs, raw, BindOptions{})
+	if err != nil {
+		t.Fatalf("escaping should not error: %v", err)
+	}
+	want := `WHERE a='x\\' AND b=' OR 1=1 -- '`
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	// Every literal must be quote-balanced; counting backslash-escaped quotes is
+	// what break-out exploits, so also assert no odd run of trailing backslashes
+	// precedes a closing quote.
+	if strings.Contains(got, `\'`) && !strings.Contains(got, `\\'`) {
+		t.Errorf("an unescaped backslash precedes a quote in %q", got)
+	}
+}
+
+func TestBind_RejectsNulByte(t *testing.T) {
+	defs := []Definition{{Name: "a", Type: TypeString, Required: true}}
+	if _, err := Bind("{{a}}", defs, map[string]interface{}{"a": "ab\x00cd"}, BindOptions{}); err == nil {
+		t.Error("expected rejection of string containing a NUL byte")
+	}
+	// Also rejected inside a list element.
+	listDefs := []Definition{{Name: "xs", Type: TypeList, ElementType: TypeString, Required: true}}
+	if _, err := Bind("IN ({{xs}})", listDefs, map[string]interface{}{"xs": []string{"ok", "bad\x00"}}, BindOptions{}); err == nil {
+		t.Error("expected rejection of NUL byte in list element")
+	}
+}
+
 func TestBind_RepeatedPlaceholder(t *testing.T) {
 	defs := []Definition{{Name: "id", Type: TypeInteger, Required: true}}
 	got, err := Bind("a={{id}} OR b={{id}}", defs, map[string]interface{}{"id": 7}, BindOptions{})

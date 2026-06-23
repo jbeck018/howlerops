@@ -42,7 +42,15 @@ export function useAlerts(): UseAlertsResult {
 
   const toggle = useCallback(
     async (id: string, enabled: boolean) => {
-      await apiSetEnabled(id, enabled)
+      try {
+        await apiSetEnabled(id, enabled)
+      } catch (err) {
+        toast({
+          title: enabled ? 'Failed to enable alert' : 'Failed to disable alert',
+          description: err instanceof Error ? err.message : 'Error',
+          variant: 'destructive',
+        })
+      }
       await refresh()
     },
     [refresh],
@@ -50,7 +58,15 @@ export function useAlerts(): UseAlertsResult {
 
   const remove = useCallback(
     async (id: string) => {
-      await apiDelete(id)
+      try {
+        await apiDelete(id)
+      } catch (err) {
+        toast({
+          title: 'Failed to delete alert',
+          description: err instanceof Error ? err.message : 'Error',
+          variant: 'destructive',
+        })
+      }
       await refresh()
     },
     [refresh],

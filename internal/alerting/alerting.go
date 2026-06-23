@@ -9,6 +9,7 @@ package alerting
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jbeck018/howlerops/internal/forecast"
@@ -78,6 +79,13 @@ func Evaluate(series forecast.Series, rule Rule) (Event, error) {
 	if len(series) == 0 {
 		return Event{}, forecast.ErrNoData
 	}
+	// Sort defensively by time so "the latest value" (threshold) and lookback
+	// windowing (anomaly) refer to genuinely recent points even when the caller
+	// passes an unsorted series. forecast.Forecast/DetectAnomalies sort their own
+	// copies internally, but evalThreshold reads series[len-1] directly, so the
+	// order matters here. Copy first to avoid mutating the caller's slice.
+	series = append(forecast.Series(nil), series...)
+	sort.SliceStable(series, func(i, j int) bool { return series[i].Time.Before(series[j].Time) })
 	switch {
 	case rule.Anomaly != nil:
 		return evalAnomaly(series, rule)

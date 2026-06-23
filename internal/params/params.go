@@ -84,7 +84,7 @@ func (v Value) SQL() (string, error) {
 func renderSQL(def Definition, raw interface{}) (string, error) {
 	switch def.Type {
 	case TypeString, TypeEnum:
-		return quoteString(raw.(string)), nil
+		return quoteString(raw.(string))
 	case TypeNumber:
 		return strconv.FormatFloat(raw.(float64), 'f', -1, 64), nil
 	case TypeInteger:
@@ -117,9 +117,30 @@ func renderSQL(def Definition, raw interface{}) (string, error) {
 }
 
 // quoteString returns a single-quoted SQL string literal with embedded quotes
-// doubled per the SQL standard.
-func quoteString(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+// doubled.
+//
+// Safety across dialects: doubling single quotes alone is sufficient only when
+// backslash is an ordinary character (PostgreSQL with standard_conforming_strings
+// on, SQLite). On MySQL (with NO_BACKSLASH_ESCAPES off, the default) and
+// ClickHouse, backslash is an escape character inside string literals, so a
+// trailing/odd backslash could consume the closing quote and break out of the
+// literal (e.g. a lone backslash would render, under quote-doubling alone, with
+// the closing quote escaped, leaving the string unterminated on MySQL). Because
+// this renderer is
+// dialect-agnostic and its output is concatenated directly into queries, we also
+// double backslashes. That is safe on every supported dialect: where backslash
+// is ordinary it merely renders a literal pair of backslashes (a cosmetic data
+// difference for backslash-bearing strings), and where backslash escapes are
+// active it correctly neutralises the escape. NUL bytes are rejected outright:
+// no dialect accepts them in a literal meaningfully, and they enable
+// string-truncation attacks against C-based drivers.
+func quoteString(s string) (string, error) {
+	if strings.IndexByte(s, 0) >= 0 {
+		return "", fmt.Errorf("string value contains a NUL byte, which cannot be safely escaped")
+	}
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "'", "''")
+	return "'" + s + "'", nil
 }
 
 // Coerce validates and converts a single raw input against a definition,

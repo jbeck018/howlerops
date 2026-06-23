@@ -80,7 +80,9 @@ export function NotebookPanel() {
   }, [selectedId, load])
 
   useEffect(() => {
-    if (definition?.inputs) setValues(defaultValues(definition.inputs))
+    // Reseed values when the definition changes; clear stale values when the new
+    // notebook has no inputs so a prior notebook's data is never submitted.
+    setValues(definition?.inputs ? defaultValues(definition.inputs) : {})
   }, [definition])
 
   const cellTitles = useMemo(() => {

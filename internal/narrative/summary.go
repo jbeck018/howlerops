@@ -12,6 +12,7 @@ package narrative
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -147,12 +148,35 @@ func summarizeColumn(name string, rows []map[string]interface{}) ColumnSummary {
 		cs.Distinct = len(categories)
 		// Only sample values for low-cardinality categories that actually
 		// repeat. Columns where values are mostly unique are identifiers, and
-		// emitting their values would leak raw data into the prompt.
-		if cs.Distinct < nonNull && cs.Distinct <= maxCategoryValues {
+		// emitting their values would leak raw data into the prompt. As a second
+		// guard, never sample values that look like PII (emails, SSNs) even when
+		// they happen to repeat in a small result set — the cardinality
+		// heuristic alone cannot catch those.
+		if cs.Distinct < nonNull && cs.Distinct <= maxCategoryValues && !looksLikePII(categories) {
 			cs.Top = topValues(categories, defaultTopK)
 		}
 	}
 	return cs
+}
+
+// ssnPattern matches a US Social Security Number (NNN-NN-NNNN), optionally
+// surrounded by whitespace.
+var ssnPattern = regexp.MustCompile(`^\s*\d{3}-\d{2}-\d{4}\s*$`)
+
+// looksLikePII reports whether any sampled category value looks like personally
+// identifiable information that must never reach the prompt — currently emails
+// and US SSNs. A single matching value suppresses sampling for the whole column,
+// because mixed identifier columns are still identifier columns.
+func looksLikePII(categories map[string]int) bool {
+	for v := range categories {
+		if strings.Contains(v, "@") && strings.Contains(v, ".") {
+			return true
+		}
+		if ssnPattern.MatchString(v) {
+			return true
+		}
+	}
+	return false
 }
 
 // topValues returns the k most frequent values, ties broken by value for

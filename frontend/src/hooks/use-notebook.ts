@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   getNotebook as apiGet,
@@ -59,18 +59,24 @@ export function useNotebookRun(): UseNotebookRunResult {
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Guards against an earlier load() resolving after a later one (stale response).
+  const loadSeq = useRef(0)
 
   const load = useCallback(async (id: string) => {
+    const seq = ++loadSeq.current
     setLoading(true)
     setError(null)
     setResult(null)
     try {
-      setDefinition(await apiGet(id))
+      const def = await apiGet(id)
+      if (seq !== loadSeq.current) return
+      setDefinition(def)
     } catch (err) {
+      if (seq !== loadSeq.current) return
       setError(err instanceof Error ? err.message : 'Failed to load notebook')
       setDefinition(null)
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [])
 

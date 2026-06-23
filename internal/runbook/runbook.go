@@ -210,8 +210,13 @@ func Execute(ctx context.Context, rb Runbook, inputs map[string]any, deps Deps, 
 	out := &RunResult{Outcomes: make(map[string]StepOutcome, len(runResults)), Order: order, DryRun: opts.DryRun}
 	for id, r := range runResults {
 		outcome := StepOutcome{StepID: id, Status: r.Status}
+		// On success the runner carries the outcome as Output; on failure it
+		// carries only the error (Output is nil), so recover the rich outcome
+		// from the wrapping stepError so Error/Name/Kind/SQL survive.
 		if oc, ok := r.Output.(StepOutcome); ok {
 			outcome = oc
+		} else if se, ok := r.Err.(*stepError); ok {
+			outcome = se.outcome
 		}
 		outcome.Status = r.Status
 		if r.Status == runner.StatusSkipped {
@@ -223,6 +228,22 @@ func Execute(ctx context.Context, rb Runbook, inputs map[string]any, deps Deps, 
 		out.Outcomes[id] = outcome
 	}
 	return out, nil
+}
+
+// stepError wraps a step's failure together with its captured outcome so the
+// runner (which only retains the error on failure) can hand back the full
+// StepOutcome — preserving Name/Kind/SQL/Error for the run history and UI.
+type stepError struct {
+	outcome StepOutcome
+	err     error
+}
+
+func (e *stepError) Error() string { return e.err.Error() }
+func (e *stepError) Unwrap() error { return e.err }
+
+// fail attaches the outcome to the error returned to the runner.
+func fail(outcome StepOutcome, err error) (any, error) {
+	return outcome, &stepError{outcome: outcome, err: err}
 }
 
 // runStep executes a single step according to its kind and the guardrail.
@@ -239,11 +260,11 @@ func runStep(ctx context.Context, rb Runbook, st Step, inputs map[string]any, re
 		}
 		if deps.Notify == nil {
 			outcome.Error = "no notifier configured"
-			return outcome, fmt.Errorf("runbook: step %q: no notifier configured", st.ID)
+			return fail(outcome, fmt.Errorf("runbook: step %q: no notifier configured", st.ID))
 		}
 		if err := deps.Notify.Notify(ctx, st.Channel, msg); err != nil {
 			outcome.Error = err.Error()
-			return outcome, err
+			return fail(outcome, err)
 		}
 		outcome.Notified = true
 		return outcome, nil
@@ -252,7 +273,7 @@ func runStep(ctx context.Context, rb Runbook, st Step, inputs map[string]any, re
 		bound, err := bindSQL(st.SQL, rb.Inputs, inputs)
 		if err != nil {
 			outcome.Error = err.Error()
-			return outcome, err
+			return fail(outcome, err)
 		}
 		outcome.SQL = bound
 		if opts.DryRun {
@@ -265,22 +286,22 @@ func runStep(ctx context.Context, rb Runbook, st Step, inputs map[string]any, re
 			ok, err := deps.Approve(ctx, ActionRequest{StepID: st.ID, Name: st.Name, ConnectionID: st.ConnectionID, SQL: bound})
 			if err != nil {
 				outcome.Error = err.Error()
-				return outcome, err
+				return fail(outcome, err)
 			}
 			approved = ok
 		}
 		if !approved {
 			outcome.Error = "action not approved"
-			return outcome, fmt.Errorf("runbook: step %q: action not approved", st.ID)
+			return fail(outcome, fmt.Errorf("runbook: step %q: action not approved", st.ID))
 		}
 		if deps.Action == nil {
 			outcome.Error = "no action runner configured"
-			return outcome, fmt.Errorf("runbook: step %q: no action runner configured", st.ID)
+			return fail(outcome, fmt.Errorf("runbook: step %q: no action runner configured", st.ID))
 		}
 		affected, err := deps.Action.ExecSQL(ctx, st.ConnectionID, bound)
 		if err != nil {
 			outcome.Error = err.Error()
-			return outcome, err
+			return fail(outcome, err)
 		}
 		outcome.RowsAffected = affected
 		return outcome, nil
@@ -289,17 +310,17 @@ func runStep(ctx context.Context, rb Runbook, st Step, inputs map[string]any, re
 		bound, err := bindSQL(st.SQL, rb.Inputs, inputs)
 		if err != nil {
 			outcome.Error = err.Error()
-			return outcome, err
+			return fail(outcome, err)
 		}
 		outcome.SQL = bound
 		if deps.Query == nil {
 			outcome.Error = "no query runner configured"
-			return outcome, fmt.Errorf("runbook: step %q: no query runner configured", st.ID)
+			return fail(outcome, fmt.Errorf("runbook: step %q: no query runner configured", st.ID))
 		}
 		res, err := deps.Query.RunSQL(ctx, st.ConnectionID, bound)
 		if err != nil {
 			outcome.Error = err.Error()
-			return outcome, err
+			return fail(outcome, err)
 		}
 		outcome.Result = res
 		return outcome, nil

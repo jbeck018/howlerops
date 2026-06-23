@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   deleteRunbook as apiDelete,
@@ -70,18 +70,24 @@ export function useRunbookRun(): UseRunbookRunResult {
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Guards against an earlier load() resolving after a later one (stale response).
+  const loadSeq = useRef(0)
 
   const load = useCallback(async (id: string) => {
+    const seq = ++loadSeq.current
     setLoading(true)
     setError(null)
     setResult(null)
     try {
-      setDefinition(await apiGet(id))
+      const def = await apiGet(id)
+      if (seq !== loadSeq.current) return
+      setDefinition(def)
     } catch (err) {
+      if (seq !== loadSeq.current) return
       setError(err instanceof Error ? err.message : 'Failed to load runbook')
       setDefinition(null)
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [])
 
@@ -98,9 +104,12 @@ export function useRunbookRun(): UseRunbookRunResult {
   }, [])
 
   const reset = useCallback(() => {
+    // Invalidate any in-flight load so its response can't repopulate after reset.
+    loadSeq.current++
     setDefinition(null)
     setResult(null)
     setError(null)
+    setLoading(false)
   }, [])
 
   return { definition, result, loading, running, error, load, run, reset }

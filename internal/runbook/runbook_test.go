@@ -132,6 +132,36 @@ func TestExecute_FailurePropagatesToDependents(t *testing.T) {
 	}
 }
 
+func TestExecute_FailedOutcomePreservesDetails(t *testing.T) {
+	rb := Runbook{
+		Steps: []Step{
+			{ID: "a", Name: "lookup", Kind: StepQuery, ConnectionID: "c", SQL: "SELECT bad_thing"},
+		},
+	}
+	fr := newFakeRunner()
+	fr.failOn["bad_thing"] = errors.New("syntax error")
+
+	res, err := Execute(context.Background(), rb, nil, Deps{Query: fr}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oc := res.Outcomes["a"]
+	if oc.Status != runner.StatusFailed {
+		t.Fatalf("expected failed, got %s", oc.Status)
+	}
+	// A failed step must still carry its identifying detail and error for the
+	// run history and UI — not just a bare status.
+	if oc.Error != "syntax error" {
+		t.Errorf("Error lost: %q", oc.Error)
+	}
+	if oc.Name != "lookup" || oc.Kind != StepQuery {
+		t.Errorf("Name/Kind lost: %+v", oc)
+	}
+	if oc.SQL != "SELECT bad_thing" {
+		t.Errorf("SQL lost: %q", oc.SQL)
+	}
+}
+
 func TestExecute_MissingRequiredInput(t *testing.T) {
 	rb := Runbook{
 		Inputs: []params.Definition{{Name: "owner", Type: params.TypeString, Required: true}},

@@ -8,12 +8,13 @@ import (
 	"github.com/cloudwego/eino/components/model"
 )
 
-// Turn is one completed exchange in a multi-turn session.
+// Turn is one completed exchange in a multi-turn session. The json tags keep
+// the persisted SessionState shape consistent with its own lowerCamel tags.
 type Turn struct {
-	UserMessage string
-	Answer      string
-	Steps       []Step
-	ExecutedSQL string
+	UserMessage string `json:"userMessage,omitempty"`
+	Answer      string `json:"answer,omitempty"`
+	Steps       []Step `json:"steps,omitempty"`
+	ExecutedSQL string `json:"executedSql,omitempty"`
 }
 
 // SessionOptions configure a multi-turn session.

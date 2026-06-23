@@ -116,6 +116,31 @@ func TestEvaluate_CleanSeriesNoAnomaly(t *testing.T) {
 	}
 }
 
+func TestEvaluate_ThresholdSortsUnorderedSeries(t *testing.T) {
+	// The genuine latest point (by time) is 95; it is supplied out of order.
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := forecast.Series{
+		{Time: start.AddDate(0, 0, 3), Value: 95}, // latest in time
+		{Time: start.AddDate(0, 0, 0), Value: 10},
+		{Time: start.AddDate(0, 0, 1), Value: 20},
+		{Time: start.AddDate(0, 0, 2), Value: 30},
+	}
+	ev, err := Evaluate(s, Rule{Name: "high", Threshold: &ThresholdRule{Comparator: GT, Value: 90}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ev.Fired || ev.Value != 95 {
+		t.Fatalf("expected fire on the time-latest value 95, got %+v", ev)
+	}
+	if !ev.At.Equal(start.AddDate(0, 0, 3)) {
+		t.Errorf("triggering time = %v, want the latest timestamp", ev.At)
+	}
+	// The caller's slice must not be mutated by the defensive sort.
+	if s[0].Value != 95 {
+		t.Errorf("Evaluate mutated caller's series order: %+v", s)
+	}
+}
+
 func TestEvaluate_ForecastThresholdCrossing(t *testing.T) {
 	// Rising trend: forecast should exceed a threshold above the current max.
 	vals := make([]float64, 20)

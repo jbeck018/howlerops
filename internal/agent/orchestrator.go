@@ -121,6 +121,9 @@ func composeSystemPrompt(base, specialist string) string {
 // first. Deterministic and dependency-free; swap in an LLM-backed RouterFunc for
 // smarter routing.
 func KeywordRouter(_ context.Context, message string, specialists []Specialist) (string, error) {
+	if len(specialists) == 0 {
+		return "", fmt.Errorf("agent: no specialists to route to")
+	}
 	words := tokenize(message)
 	best := specialists[0].Name
 	bestScore := 0

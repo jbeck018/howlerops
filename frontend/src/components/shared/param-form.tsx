@@ -81,15 +81,23 @@ function renderControl(
   }
 
   if (type === 'number' || type === 'integer') {
+    // Show '' for NaN so React keeps the input controlled without rendering "NaN".
+    const numText = typeof value === 'number' && Number.isNaN(value) ? '' : value != null ? String(value) : ''
     return (
       <Input
         id={id}
         type="number"
-        value={value != null ? String(value) : ''}
+        value={numText}
         step={type === 'integer' ? 1 : 'any'}
         onChange={(e) => {
           const raw = e.target.value
-          set(input.name, raw === '' ? undefined : Number(raw))
+          if (raw === '') {
+            set(input.name, undefined)
+            return
+          }
+          const num = Number(raw)
+          // Ignore intermediate/invalid input (e.g. "-", "1e") rather than storing NaN.
+          set(input.name, Number.isNaN(num) ? undefined : num)
         }}
       />
     )

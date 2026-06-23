@@ -31,6 +31,22 @@ describe('ParamForm', () => {
     expect(onChange).toHaveBeenCalledWith({ limit: 10 })
   })
 
+  it('clears a number input to undefined when emptied (not NaN)', () => {
+    const onChange = vi.fn()
+    const inputs: ParamInput[] = [{ name: 'limit', type: 'number' }]
+    render(<ParamForm inputs={inputs} values={{ limit: 5 }} onChange={onChange} />)
+    fireEvent.change(screen.getByLabelText('limit'), { target: { value: '' } })
+    expect(onChange).toHaveBeenCalledWith({ limit: undefined })
+  })
+
+  it('does not store NaN for an empty number value', () => {
+    const onChange = vi.fn()
+    const inputs: ParamInput[] = [{ name: 'limit', type: 'number' }]
+    // A NaN incoming value must render as an empty controlled input, not "NaN".
+    render(<ParamForm inputs={inputs} values={{ limit: NaN }} onChange={onChange} />)
+    expect(screen.getByLabelText('limit')).toHaveValue(null)
+  })
+
   it('parses a list input into an array', () => {
     const onChange = vi.fn()
     const inputs: ParamInput[] = [{ name: 'ids', type: 'list' }]
