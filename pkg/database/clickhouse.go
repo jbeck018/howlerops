@@ -107,6 +107,11 @@ func (c *ClickHouseDatabase) Execute(ctx context.Context, query string, args ...
 	}
 
 	query = strings.TrimSpace(query)
+
+	if stmts, ok := scriptStatements(query, args); ok {
+		return executeSQLScript(ctx, db, c.logger, stmts, nil)
+	}
+
 	isSelect := strings.HasPrefix(strings.ToUpper(query), "SELECT") ||
 		strings.HasPrefix(strings.ToUpper(query), "WITH") ||
 		strings.HasPrefix(strings.ToUpper(query), "SHOW") ||
@@ -127,6 +132,11 @@ func (c *ClickHouseDatabase) ExecuteWithOptions(ctx context.Context, query strin
 	}
 
 	query = strings.TrimSpace(query)
+
+	if stmts, ok := scriptStatements(query, args); ok {
+		return executeSQLScript(ctx, db, c.logger, stmts, opts)
+	}
+
 	isSelect := strings.HasPrefix(strings.ToUpper(query), "SELECT") ||
 		strings.HasPrefix(strings.ToUpper(query), "WITH") ||
 		strings.HasPrefix(strings.ToUpper(query), "SHOW") ||

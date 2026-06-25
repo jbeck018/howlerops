@@ -127,6 +127,11 @@ func (p *PostgresDatabase) Execute(ctx context.Context, query string, args ...in
 	}
 
 	query = strings.TrimSpace(query)
+
+	if stmts, ok := scriptStatements(query, args); ok {
+		return executeSQLScript(ctx, db, p.logger, stmts, nil)
+	}
+
 	isSelect := strings.HasPrefix(strings.ToUpper(query), "SELECT") ||
 		strings.HasPrefix(strings.ToUpper(query), "WITH")
 
@@ -145,6 +150,11 @@ func (p *PostgresDatabase) ExecuteWithOptions(ctx context.Context, query string,
 	}
 
 	query = strings.TrimSpace(query)
+
+	if stmts, ok := scriptStatements(query, args); ok {
+		return executeSQLScript(ctx, db, p.logger, stmts, opts)
+	}
+
 	isSelect := strings.HasPrefix(strings.ToUpper(query), "SELECT") ||
 		strings.HasPrefix(strings.ToUpper(query), "WITH")
 
