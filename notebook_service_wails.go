@@ -17,13 +17,14 @@ import (
 // notify cells emit events, and cross-cell composition runs on the DuckDB
 // compute engine when available.
 type WailsNotebookService struct {
-	deps  *SharedDeps
-	store *storage.NotebookStore
+	deps    *SharedDeps
+	store   *storage.NotebookStore
+	stagers *notebookStagers
 }
 
 // NewWailsNotebookService constructs the service; the store is wired in later.
 func NewWailsNotebookService(deps *SharedDeps) *WailsNotebookService {
-	return &WailsNotebookService{deps: deps}
+	return &WailsNotebookService{deps: deps, stagers: newNotebookStagers(deps)}
 }
 
 // SetStore injects the notebook store once storage is ready.
@@ -39,7 +40,7 @@ func (s *WailsNotebookService) service() (*notebooksvc.Service, error) {
 		Query:   exec,
 		Action:  exec,
 		Notify:  &notebookNotifier{deps: s.deps},
-		Stagers: newNotebookStagers(s.deps),
+		Stagers: s.stagers,
 	}), nil
 }
 
