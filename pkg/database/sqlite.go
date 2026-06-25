@@ -124,6 +124,11 @@ func (s *SQLiteDatabase) Execute(ctx context.Context, query string, args ...inte
 	}
 
 	query = strings.TrimSpace(query)
+
+	if stmts, ok := scriptStatements(query, args); ok {
+		return executeSQLScript(ctx, db, s.logger, stmts, nil)
+	}
+
 	isSelect := strings.HasPrefix(strings.ToUpper(query), "SELECT") ||
 		strings.HasPrefix(strings.ToUpper(query), "WITH") ||
 		strings.HasPrefix(strings.ToUpper(query), "PRAGMA")
@@ -143,6 +148,11 @@ func (s *SQLiteDatabase) ExecuteWithOptions(ctx context.Context, query string, o
 	}
 
 	query = strings.TrimSpace(query)
+
+	if stmts, ok := scriptStatements(query, args); ok {
+		return executeSQLScript(ctx, db, s.logger, stmts, opts)
+	}
+
 	isSelect := strings.HasPrefix(strings.ToUpper(query), "SELECT") ||
 		strings.HasPrefix(strings.ToUpper(query), "WITH") ||
 		strings.HasPrefix(strings.ToUpper(query), "PRAGMA")

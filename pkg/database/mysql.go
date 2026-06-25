@@ -124,6 +124,11 @@ func (m *MySQLDatabase) Execute(ctx context.Context, query string, args ...inter
 	}
 
 	query = strings.TrimSpace(query)
+
+	if stmts, ok := scriptStatements(query, args); ok {
+		return executeSQLScript(ctx, db, m.logger, stmts, nil)
+	}
+
 	isSelect := strings.HasPrefix(strings.ToUpper(query), "SELECT") ||
 		strings.HasPrefix(strings.ToUpper(query), "WITH") ||
 		strings.HasPrefix(strings.ToUpper(query), "SHOW") ||
@@ -145,6 +150,11 @@ func (m *MySQLDatabase) ExecuteWithOptions(ctx context.Context, query string, op
 	}
 
 	query = strings.TrimSpace(query)
+
+	if stmts, ok := scriptStatements(query, args); ok {
+		return executeSQLScript(ctx, db, m.logger, stmts, opts)
+	}
+
 	isSelect := strings.HasPrefix(strings.ToUpper(query), "SELECT") ||
 		strings.HasPrefix(strings.ToUpper(query), "WITH") ||
 		strings.HasPrefix(strings.ToUpper(query), "SHOW") ||

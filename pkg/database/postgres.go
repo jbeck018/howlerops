@@ -128,8 +128,8 @@ func (p *PostgresDatabase) Execute(ctx context.Context, query string, args ...in
 
 	query = strings.TrimSpace(query)
 
-	if stmts, ok := p.scriptStatements(query, args); ok {
-		return p.executeScript(ctx, db, stmts, nil)
+	if stmts, ok := scriptStatements(query, args); ok {
+		return executeSQLScript(ctx, db, p.logger, stmts, nil)
 	}
 
 	isSelect := strings.HasPrefix(strings.ToUpper(query), "SELECT") ||
@@ -151,8 +151,8 @@ func (p *PostgresDatabase) ExecuteWithOptions(ctx context.Context, query string,
 
 	query = strings.TrimSpace(query)
 
-	if stmts, ok := p.scriptStatements(query, args); ok {
-		return p.executeScript(ctx, db, stmts, opts)
+	if stmts, ok := scriptStatements(query, args); ok {
+		return executeSQLScript(ctx, db, p.logger, stmts, opts)
 	}
 
 	isSelect := strings.HasPrefix(strings.ToUpper(query), "SELECT") ||
@@ -623,163 +623,6 @@ func (p *PostgresDatabase) executeNonSelect(ctx context.Context, db *sql.DB, que
 		Affected: affected,
 		Duration: time.Since(start),
 	}, nil
-}
-
-// scriptStatements decides whether a query should be executed as a
-// multi-statement script and, if so, returns its individual statements. A query
-// qualifies when it has no bound parameters (multi-statement execution requires
-// PostgreSQL's simple query protocol, which lib/pq only uses without args) and
-// splits into more than one statement (e.g. "BEGIN; ...; COMMIT;" or several
-// DML statements separated by semicolons).
-func (p *PostgresDatabase) scriptStatements(query string, args []interface{}) ([]string, bool) {
-	if len(args) > 0 {
-		return nil, false
-	}
-	stmts := splitSQLStatements(query)
-	if len(stmts) <= 1 {
-		return nil, false
-	}
-	return stmts, true
-}
-
-// executeScript runs a multi-statement SQL script on a single pinned backend
-// connection so that client-side transaction control (BEGIN/COMMIT, SAVEPOINT,
-// SET LOCAL) and any data-modifying CTE side effects all share one session. The
-// result set of the LAST row-returning statement is returned to the caller,
-// mirroring how psql surfaces a script's final result; affected-row counts from
-// the non-row-returning statements are summed into Affected.
-//
-// Pagination/limit rewriting is deliberately skipped: wrapping a script — or a
-// WITH that contains a data-modifying statement — in a COUNT(*) subquery is not
-// valid SQL, which is exactly why these queries failed on the single-statement
-// path. The configured limit is still honored as a cap on the rows materialized
-// from the final result set.
-func (p *PostgresDatabase) executeScript(ctx context.Context, db *sql.DB, statements []string, opts *QueryOptions) (*QueryResult, error) {
-	start := time.Now()
-
-	// Pin one connection for the whole script. database/sql would otherwise be
-	// free to hand each statement to a different pooled backend, which breaks
-	// BEGIN/COMMIT and any cross-statement session state.
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		return &QueryResult{Error: err, Duration: time.Since(start)}, err
-	}
-	defer func() {
-		if cerr := conn.Close(); cerr != nil {
-			p.logger.WithError(cerr).Error("Failed to close pinned connection for script execution")
-		}
-	}()
-
-	limit := 0
-	if opts != nil {
-		limit = opts.Limit
-	}
-
-	var (
-		result        *QueryResult
-		totalAffected int64
-	)
-
-	for _, stmt := range statements {
-		if statementReturnsRows(stmt) {
-			res, qerr := p.runScriptQuery(ctx, conn, stmt, limit)
-			if qerr != nil {
-				return &QueryResult{Error: qerr, Duration: time.Since(start)}, qerr
-			}
-			result = res
-		} else {
-			res, eerr := conn.ExecContext(ctx, stmt)
-			if eerr != nil {
-				return &QueryResult{Error: eerr, Duration: time.Since(start)}, eerr
-			}
-			if affected, aerr := res.RowsAffected(); aerr == nil {
-				totalAffected += affected
-			}
-		}
-	}
-
-	if result == nil {
-		// The script produced no result set (pure DDL/DML); report affected rows.
-		result = &QueryResult{Columns: []string{}, Rows: make([][]interface{}, 0)}
-	}
-	if result.Affected == 0 {
-		result.Affected = totalAffected
-	}
-	result.Duration = time.Since(start)
-
-	// Multi-statement scripts are never inline-editable: the final result set is
-	// not a straightforward single-table projection.
-	metadata := newEditableMetadata(result.Columns)
-	metadata.Reason = "Editing is not available for multi-statement scripts"
-	result.Editable = metadata
-
-	return result, nil
-}
-
-// runScriptQuery executes one row-returning statement of a script on the pinned
-// connection and reads its result set, capping the materialized rows at limit
-// (0 means no cap) and reporting HasMore when more rows were available.
-func (p *PostgresDatabase) runScriptQuery(ctx context.Context, conn *sql.Conn, query string, limit int) (*QueryResult, error) {
-	rows, err := conn.QueryContext(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if cerr := rows.Close(); cerr != nil {
-			p.logger.WithError(cerr).Error("Failed to close rows")
-		}
-	}()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, err
-	}
-
-	result := &QueryResult{
-		Columns: columns,
-		Rows:    make([][]interface{}, 0),
-	}
-
-	for rows.Next() {
-		if limit > 0 && len(result.Rows) >= limit {
-			// We already have a full page; one more row means there is more.
-			result.HasMore = true
-			break
-		}
-
-		values := make([]interface{}, len(columns))
-		scanArgs := make([]interface{}, len(columns))
-		for i := range values {
-			scanArgs[i] = &values[i]
-		}
-
-		if err := rows.Scan(scanArgs...); err != nil {
-			return nil, err
-		}
-
-		for i, v := range values {
-			if b, ok := v.([]byte); ok {
-				values[i] = string(b)
-			}
-		}
-		for i := range values {
-			values[i] = NormalizeValue(values[i])
-		}
-
-		result.Rows = append(result.Rows, values)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	result.RowCount = int64(len(result.Rows))
-	result.PagedRows = result.RowCount
-	if !result.HasMore {
-		result.TotalRows = result.RowCount
-	}
-
-	return result, nil
 }
 
 // UpdateRow persists changes to a single row identified by its primary key

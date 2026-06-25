@@ -1,8 +1,13 @@
 package database
 
 import (
+	"context"
+	"database/sql"
 	"strings"
+	"time"
 	"unicode"
+
+	"github.com/sirupsen/logrus"
 )
 
 // splitSQLStatements splits a SQL script into its individual statements on
@@ -63,9 +68,13 @@ func splitSQLStatements(script string) []string {
 
 // statementReturnsRows reports whether a single SQL statement is expected to
 // produce a result set (and therefore should be run via Query rather than Exec).
+// The keyword set spans every SQL engine we support (PostgreSQL, MySQL/TiDB,
+// ClickHouse, SQLite); a row-returning keyword that is meaningless for a given
+// engine simply never appears in that engine's scripts.
 func statementReturnsRows(stmt string) bool {
 	switch leadingKeyword(stmt) {
-	case "SELECT", "WITH", "VALUES", "TABLE", "SHOW", "EXPLAIN", "FETCH", "CALL":
+	case "SELECT", "WITH", "VALUES", "TABLE", "SHOW", "EXPLAIN",
+		"FETCH", "CALL", "DESCRIBE", "DESC", "PRAGMA":
 		return true
 	}
 	// INSERT/UPDATE/DELETE/MERGE ... RETURNING also produce a result set.
@@ -296,4 +305,168 @@ func writeRune(buf *strings.Builder, r rune) {
 	if buf != nil {
 		buf.WriteRune(r)
 	}
+}
+
+// scriptStatements decides whether a query should be executed as a
+// multi-statement script and, if so, returns its individual statements. A query
+// qualifies when it carries no bound parameters — args cannot be distributed
+// across split statements, and multi-statement execution relies on the simple
+// query protocol — and it splits into more than one statement (e.g.
+// "BEGIN; ...; COMMIT;" or several DML statements separated by semicolons).
+//
+// This is engine-agnostic: every SQL driver we support (PostgreSQL, MySQL/TiDB,
+// ClickHouse, SQLite) routes through it before its single-statement path.
+func scriptStatements(query string, args []interface{}) ([]string, bool) {
+	if len(args) > 0 {
+		return nil, false
+	}
+	stmts := splitSQLStatements(query)
+	if len(stmts) <= 1 {
+		return nil, false
+	}
+	return stmts, true
+}
+
+// executeSQLScript runs a multi-statement SQL script on a single pinned backend
+// connection so that client-side transaction control (BEGIN/COMMIT, SAVEPOINT,
+// SET LOCAL) and any data-modifying CTE side effects all share one session. The
+// result set of the LAST row-returning statement is returned to the caller,
+// mirroring how psql/mysql surface a script's final result; affected-row counts
+// from the non-row-returning statements are summed into Affected.
+//
+// Pagination/limit rewriting is deliberately skipped: wrapping a script — or a
+// WITH that contains a data-modifying statement — in a COUNT(*) subquery is not
+// valid SQL, which is exactly why these queries failed on the single-statement
+// path. The configured limit is still honored as a cap on the rows materialized
+// from the final result set.
+//
+// It works across every database/sql driver we use; per-engine value handling is
+// uniform (raw []byte is decoded to string, then NormalizeValue is applied),
+// matching each driver's own executeSelect.
+func executeSQLScript(ctx context.Context, db *sql.DB, logger *logrus.Logger, statements []string, opts *QueryOptions) (*QueryResult, error) {
+	start := time.Now()
+
+	// Pin one connection for the whole script. database/sql would otherwise be
+	// free to hand each statement to a different pooled backend, which breaks
+	// BEGIN/COMMIT and any cross-statement session state.
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return &QueryResult{Error: err, Duration: time.Since(start)}, err
+	}
+	defer func() {
+		if cerr := conn.Close(); cerr != nil && logger != nil {
+			logger.WithError(cerr).Error("Failed to close pinned connection for script execution")
+		}
+	}()
+
+	limit := 0
+	if opts != nil {
+		limit = opts.Limit
+	}
+
+	var (
+		result        *QueryResult
+		totalAffected int64
+	)
+
+	for _, stmt := range statements {
+		if statementReturnsRows(stmt) {
+			res, qerr := runScriptStatementQuery(ctx, conn, logger, stmt, limit)
+			if qerr != nil {
+				return &QueryResult{Error: qerr, Duration: time.Since(start)}, qerr
+			}
+			result = res
+		} else {
+			res, eerr := conn.ExecContext(ctx, stmt)
+			if eerr != nil {
+				return &QueryResult{Error: eerr, Duration: time.Since(start)}, eerr
+			}
+			if affected, aerr := res.RowsAffected(); aerr == nil {
+				totalAffected += affected
+			}
+		}
+	}
+
+	if result == nil {
+		// The script produced no result set (pure DDL/DML); report affected rows.
+		result = &QueryResult{Columns: []string{}, Rows: make([][]interface{}, 0)}
+	}
+	if result.Affected == 0 {
+		result.Affected = totalAffected
+	}
+	result.Duration = time.Since(start)
+
+	// Multi-statement scripts are never inline-editable: the final result set is
+	// not a straightforward single-table projection.
+	metadata := newEditableMetadata(result.Columns)
+	metadata.Reason = "Editing is not available for multi-statement scripts"
+	result.Editable = metadata
+
+	return result, nil
+}
+
+// runScriptStatementQuery executes one row-returning statement of a script on
+// the pinned connection and reads its result set, capping the materialized rows
+// at limit (0 means no cap) and reporting HasMore when more rows were available.
+func runScriptStatementQuery(ctx context.Context, conn *sql.Conn, logger *logrus.Logger, query string, limit int) (*QueryResult, error) {
+	rows, err := conn.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && logger != nil {
+			logger.WithError(cerr).Error("Failed to close rows")
+		}
+	}()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	result := &QueryResult{
+		Columns: columns,
+		Rows:    make([][]interface{}, 0),
+	}
+
+	for rows.Next() {
+		if limit > 0 && len(result.Rows) >= limit {
+			// We already have a full page; one more row means there is more.
+			result.HasMore = true
+			break
+		}
+
+		values := make([]interface{}, len(columns))
+		scanArgs := make([]interface{}, len(columns))
+		for i := range values {
+			scanArgs[i] = &values[i]
+		}
+
+		if err := rows.Scan(scanArgs...); err != nil {
+			return nil, err
+		}
+
+		for i, v := range values {
+			if b, ok := v.([]byte); ok {
+				values[i] = string(b)
+			}
+		}
+		for i := range values {
+			values[i] = NormalizeValue(values[i])
+		}
+
+		result.Rows = append(result.Rows, values)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	result.RowCount = int64(len(result.Rows))
+	result.PagedRows = result.RowCount
+	if !result.HasMore {
+		result.TotalRows = result.RowCount
+	}
+
+	return result, nil
 }
