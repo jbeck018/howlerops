@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Database, FileText, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, BarChart3, Bell, Database, FileText, Plus, Trash2, Wrench } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { type NotebookCell, type NotebookDefinition, saveNotebook } from '@/lib/notebook-api'
+import { type ChartSpec, type NotebookCell, type NotebookDefinition, saveNotebook } from '@/lib/notebook-api'
 import type { ParamInput } from '@/lib/param-types'
 import { useConnectionStore } from '@/store/connection-store'
 
@@ -28,7 +28,7 @@ function newCellId(): string {
 }
 
 function blankCell(kind: NotebookCell['kind']): NotebookCell {
-  return { id: newCellId(), kind, title: '', sql: '', markdown: '', connectionId: '' }
+  return { id: newCellId(), kind, title: '', name: '', sql: '', markdown: '', connectionId: '', channel: '', message: '' }
 }
 
 export interface NotebookEditorDialogProps {
@@ -42,8 +42,10 @@ export interface NotebookEditorDialogProps {
 
 /**
  * NotebookEditorDialog authors a notebook definition — name, description, typed
- * parameters, and an ordered list of markdown / SQL cells — and persists it via
- * SaveNotebook. It backs both "New notebook" and "Edit" in the NotebookPanel.
+ * parameters, and a set of cells (markdown / sql / action / notify / chart) — and
+ * persists it via SaveNotebook. SQL/action cells can carry a handle (name) so
+ * other cells reference their result (`SELECT ... FROM <handle>`). It backs both
+ * "New notebook" and "Edit" in the NotebookPanel.
  */
 export function NotebookEditorDialog({ open, onOpenChange, initial, onSaved }: NotebookEditorDialogProps) {
   const { connections } = useConnectionStore(useShallow((s) => ({ connections: s.connections })))
@@ -65,10 +67,14 @@ export function NotebookEditorDialog({ open, onOpenChange, initial, onSaved }: N
       (initial?.cells ?? []).map((c) => ({
         id: c.id || newCellId(),
         kind: c.kind,
+        name: c.name ?? '',
         title: c.title ?? '',
         sql: c.sql ?? '',
         markdown: c.markdown ?? '',
         connectionId: c.connectionId ?? '',
+        channel: c.channel ?? '',
+        message: c.message ?? '',
+        chart: c.chart,
       })),
     )
     setError(null)
@@ -76,6 +82,11 @@ export function NotebookEditorDialog({ open, onOpenChange, initial, onSaved }: N
 
   const updateCell = (index: number, patch: Partial<NotebookCell>) =>
     setCells((prev) => prev.map((c, i) => (i === index ? { ...c, ...patch } : c)))
+
+  const updateChart = (index: number, patch: Partial<ChartSpec>) =>
+    setCells((prev) =>
+      prev.map((c, i) => (i === index ? { ...c, chart: { source: '', ...c.chart, ...patch } } : c)),
+    )
 
   const removeCell = (index: number) => setCells((prev) => prev.filter((_, i) => i !== index))
 
@@ -94,16 +105,36 @@ export function NotebookEditorDialog({ open, onOpenChange, initial, onSaved }: N
       setError('Notebook name is required.')
       return
     }
+    const handleRe = /^[A-Za-z_][A-Za-z0-9_]*$/
     for (const c of cells) {
-      if (c.kind === 'sql') {
-        if (!c.connectionId) {
-          setError('Every SQL cell needs a connection.')
-          return
-        }
+      if (c.name && !handleRe.test(c.name)) {
+        setError(`Handle "${c.name}" must be a valid identifier (letters, digits, underscore).`)
+        return
+      }
+      if (c.kind === 'sql' || c.kind === 'action') {
         if (!c.sql?.trim()) {
-          setError('Every SQL cell needs a query.')
+          setError(`Every ${c.kind} cell needs a query.`)
           return
         }
+        // A read cell that references another cell composes on DuckDB and needs no
+        // connection; otherwise a connection is required.
+        const composes = c.kind === 'sql' && cells.some((o) => o.name && o.name !== c.name && new RegExp(`\\b${o.name}\\b`).test(c.sql ?? ''))
+        if (c.kind === 'action' && !c.connectionId) {
+          setError('Every action (write) cell needs a connection.')
+          return
+        }
+        if (c.kind === 'sql' && !c.connectionId && !composes) {
+          setError('A SQL cell needs a connection (unless it references another cell).')
+          return
+        }
+      }
+      if (c.kind === 'notify' && !c.message?.trim()) {
+        setError('Every notify cell needs a message.')
+        return
+      }
+      if (c.kind === 'chart' && !c.chart?.source?.trim()) {
+        setError('Every chart cell needs a source cell handle.')
+        return
       }
     }
 
@@ -115,10 +146,14 @@ export function NotebookEditorDialog({ open, onOpenChange, initial, onSaved }: N
       cells: cells.map((c) => ({
         id: c.id,
         kind: c.kind,
+        name: c.name?.trim() || undefined,
         title: c.title?.trim() || undefined,
-        connectionId: c.kind === 'sql' ? c.connectionId : undefined,
-        sql: c.kind === 'sql' ? c.sql : undefined,
+        connectionId: c.kind === 'sql' || c.kind === 'action' ? c.connectionId || undefined : undefined,
+        sql: c.kind === 'sql' || c.kind === 'action' ? c.sql : undefined,
         markdown: c.kind === 'markdown' ? c.markdown : undefined,
+        channel: c.kind === 'notify' ? c.channel || undefined : undefined,
+        message: c.kind === 'notify' ? c.message : undefined,
+        chart: c.kind === 'chart' ? c.chart : undefined,
       })),
     }
 
@@ -135,13 +170,22 @@ export function NotebookEditorDialog({ open, onOpenChange, initial, onSaved }: N
     }
   }
 
+  const addBtns: { kind: NotebookCell['kind']; label: string; icon: typeof Database }[] = [
+    { kind: 'markdown', label: 'Markdown', icon: FileText },
+    { kind: 'sql', label: 'SQL', icon: Database },
+    { kind: 'action', label: 'Action', icon: Wrench },
+    { kind: 'notify', label: 'Notify', icon: Bell },
+    { kind: 'chart', label: 'Chart', icon: BarChart3 },
+  ]
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{initial ? 'Edit notebook' : 'New notebook'}</DialogTitle>
           <DialogDescription>
-            A notebook runs its cells top to bottom. SQL cells run read-only against a connection.
+            Cells form a reactive graph. Give a SQL cell a handle and other cells can query its result by name
+            (composed on DuckDB). Action cells write and are gated by the dry-run / approval guardrail.
           </DialogDescription>
         </DialogHeader>
 
@@ -174,31 +218,23 @@ export function NotebookEditorDialog({ open, onOpenChange, initial, onSaved }: N
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-medium">Cells</Label>
-              <div className="flex gap-1">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setCells((prev) => [...prev, blankCell('markdown')])}
-                >
-                  <FileText className="mr-1.5 h-3.5 w-3.5" />
-                  Markdown
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setCells((prev) => [...prev, blankCell('sql')])}
-                >
-                  <Database className="mr-1.5 h-3.5 w-3.5" />
-                  SQL
-                </Button>
+              <div className="flex flex-wrap gap-1">
+                {addBtns.map(({ kind, label, icon: Icon }) => (
+                  <Button
+                    key={kind}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setCells((prev) => [...prev, blankCell(kind)])}
+                  >
+                    <Icon className="mr-1.5 h-3.5 w-3.5" />
+                    {label}
+                  </Button>
+                ))}
               </div>
             </div>
 
-            {cells.length === 0 && (
-              <p className="text-xs text-muted-foreground">No cells yet. Add a markdown or SQL cell.</p>
-            )}
+            {cells.length === 0 && <p className="text-xs text-muted-foreground">No cells yet. Add one above.</p>}
 
             {cells.map((cell, i) => (
               <div key={cell.id} className="space-y-2 rounded border p-2">
@@ -208,52 +244,35 @@ export function NotebookEditorDialog({ open, onOpenChange, initial, onSaved }: N
                   </span>
                   <Input
                     value={cell.title ?? ''}
-                    placeholder="Cell title (optional)"
+                    placeholder="Title (optional)"
                     onChange={(e) => updateCell(i, { title: e.target.value })}
                     className="h-8 flex-1"
                   />
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8"
-                    onClick={() => moveCell(i, -1)}
-                    disabled={i === 0}
-                    aria-label="Move cell up"
-                  >
+                  {(cell.kind === 'sql' || cell.kind === 'action') && (
+                    <Input
+                      value={cell.name ?? ''}
+                      placeholder="handle"
+                      onChange={(e) => updateCell(i, { name: e.target.value })}
+                      className="h-8 w-28 font-mono text-xs"
+                      title="Handle other cells reference (e.g. SELECT * FROM this_handle)"
+                    />
+                  )}
+                  <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => moveCell(i, -1)} disabled={i === 0} aria-label="Move cell up">
                     <ArrowUp className="h-4 w-4" />
                   </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8"
-                    onClick={() => moveCell(i, 1)}
-                    disabled={i === cells.length - 1}
-                    aria-label="Move cell down"
-                  >
+                  <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => moveCell(i, 1)} disabled={i === cells.length - 1} aria-label="Move cell down">
                     <ArrowDown className="h-4 w-4" />
                   </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8"
-                    onClick={() => removeCell(i)}
-                    aria-label="Remove cell"
-                  >
+                  <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => removeCell(i)} aria-label="Remove cell">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
 
-                {cell.kind === 'sql' ? (
+                {(cell.kind === 'sql' || cell.kind === 'action') && (
                   <>
-                    <Select
-                      value={cell.connectionId || undefined}
-                      onValueChange={(v) => updateCell(i, { connectionId: v })}
-                    >
+                    <Select value={cell.connectionId || undefined} onValueChange={(v) => updateCell(i, { connectionId: v })}>
                       <SelectTrigger className="h-8">
-                        <SelectValue placeholder="Select a connection" />
+                        <SelectValue placeholder={cell.kind === 'sql' ? 'Connection (or leave empty to compose other cells)' : 'Connection'} />
                       </SelectTrigger>
                       <SelectContent>
                         {connections.length === 0 ? (
@@ -271,18 +290,76 @@ export function NotebookEditorDialog({ open, onOpenChange, initial, onSaved }: N
                     </Select>
                     <Textarea
                       value={cell.sql ?? ''}
-                      placeholder="SELECT ... (use {{param}} to bind parameters)"
+                      placeholder={
+                        cell.kind === 'action'
+                          ? 'UPDATE ... / DELETE ... (use {{param}} to bind)'
+                          : 'SELECT ... (use {{param}}, or FROM <other_handle> to compose)'
+                      }
                       onChange={(e) => updateCell(i, { sql: e.target.value })}
                       className="min-h-[80px] font-mono text-xs"
                     />
                   </>
-                ) : (
+                )}
+
+                {cell.kind === 'markdown' && (
                   <Textarea
                     value={cell.markdown ?? ''}
-                    placeholder="## Notes, rendered as markdown"
+                    placeholder="## Notes, rendered as markdown ({{param}} is substituted)"
                     onChange={(e) => updateCell(i, { markdown: e.target.value })}
                     className="min-h-[60px]"
                   />
+                )}
+
+                {cell.kind === 'notify' && (
+                  <>
+                    <Input
+                      value={cell.channel ?? ''}
+                      placeholder="Channel (e.g. #alerts)"
+                      onChange={(e) => updateCell(i, { channel: e.target.value })}
+                      className="h-8"
+                    />
+                    <Textarea
+                      value={cell.message ?? ''}
+                      placeholder="Message ({{param}} is substituted)"
+                      onChange={(e) => updateCell(i, { message: e.target.value })}
+                      className="min-h-[50px]"
+                    />
+                  </>
+                )}
+
+                {cell.kind === 'chart' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      value={cell.chart?.source ?? ''}
+                      placeholder="Source cell handle"
+                      onChange={(e) => updateChart(i, { source: e.target.value })}
+                      className="h-8 font-mono text-xs"
+                    />
+                    <Select value={cell.chart?.type || 'bar'} onValueChange={(v) => updateChart(i, { type: v })}>
+                      <SelectTrigger className="h-8">
+                        <SelectValue placeholder="Type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {['bar', 'line', 'area', 'pie'].map((t) => (
+                          <SelectItem key={t} value={t}>
+                            {t}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      value={cell.chart?.x ?? ''}
+                      placeholder="X column"
+                      onChange={(e) => updateChart(i, { x: e.target.value })}
+                      className="h-8 font-mono text-xs"
+                    />
+                    <Input
+                      value={(cell.chart?.y ?? []).join(', ')}
+                      placeholder="Y columns (comma-separated)"
+                      onChange={(e) => updateChart(i, { y: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
+                      className="h-8 font-mono text-xs"
+                    />
+                  </div>
                 )}
               </div>
             ))}

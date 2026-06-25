@@ -84,7 +84,15 @@ export function useNotebookRun(): UseNotebookRunResult {
     setRunning(true)
     setError(null)
     try {
-      setResult(await apiRun(req))
+      const next = await apiRun(req)
+      // A reactive partial re-run (only: [...]) returns "preserved" cells with no
+      // fresh data; keep their prior output and overwrite the rest so untouched
+      // cells don't flicker to empty.
+      if (req.only && req.only.length > 0) {
+        setResult((prev) => mergePreserved(prev, next))
+      } else {
+        setResult(next)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to run notebook')
     } finally {
@@ -93,4 +101,19 @@ export function useNotebookRun(): UseNotebookRunResult {
   }, [])
 
   return { definition, result, loading, running, error, load, run }
+}
+
+/** mergePreserved keeps prior cell output for cells the backend left untouched. */
+function mergePreserved(
+  prev: NotebookRunResult | null,
+  next: NotebookRunResult,
+): NotebookRunResult {
+  if (!prev) return next
+  const priorById = new Map(prev.cells.map((c) => [c.cellId, c]))
+  const cells = next.cells.map((c) =>
+    c.status === 'preserved' && priorById.has(c.cellId)
+      ? (priorById.get(c.cellId) as (typeof next.cells)[number])
+      : c,
+  )
+  return { ...next, cells }
 }
