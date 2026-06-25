@@ -12,6 +12,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/jbeck018/howlerops/internal/ai/catalog"
+	"github.com/jbeck018/howlerops/internal/nbmigrate"
 	"github.com/jbeck018/howlerops/pkg/ai"
 	"github.com/jbeck018/howlerops/pkg/auth"
 	"github.com/jbeck018/howlerops/pkg/database"
@@ -524,6 +525,13 @@ func (lc *AppLifecycle) initializeStorageManager(ctx context.Context) error {
 	}
 	if lc.notebookSvc != nil {
 		lc.notebookSvc.SetStore(notebookStorage)
+	}
+
+	// Fold any existing runbooks into notebooks (idempotent) so the two surfaces
+	// are unified. Notebooks already migrated, or since edited by the user, are
+	// left untouched.
+	if _, err := nbmigrate.RunbooksToNotebooks(runbookStorage, notebookStorage, lc.logger); err != nil {
+		lc.logger.WithError(err).Warn("Failed to migrate runbooks into notebooks")
 	}
 
 	// DuckDB federation engine. When it initializes, wire it into the database

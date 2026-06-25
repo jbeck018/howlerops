@@ -1,4 +1,4 @@
-import { Bell, BookOpen, Database, FileText, GitCompare, ListChecks, Notebook, Settings, Terminal } from "lucide-react"
+import { Bell, BookOpen, Database, FileText, GitCompare, Notebook, Settings, Terminal } from "lucide-react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
@@ -9,7 +9,6 @@ export const NAV_ITEMS = [
   { path: '/dashboard', label: 'Queries', icon: Terminal },
   { path: '/connections', label: 'Connections', icon: Database },
   { path: '/reports', label: 'Reports', icon: FileText },
-  { path: '/runbooks', label: 'Runbooks', icon: ListChecks },
   { path: '/notebooks', label: 'Notebooks', icon: Notebook },
   { path: '/alerts', label: 'Alerts', icon: Bell },
   { path: '/schema-diff', label: 'Schema Diff', icon: GitCompare },
