@@ -27,7 +27,6 @@ const Settings = lazy(() => import('./pages/settings').then(m => ({ default: m.S
 const InviteAcceptPage = lazy(() => import('./pages/invite-accept-page').then(m => ({ default: m.InviteAcceptPage })))
 const PendingInvitationsPage = lazy(() => import('./pages/pending-invitations').then(m => ({ default: m.PendingInvitationsPage })))
 const ReportsPage = lazy(() => import('./pages/reports')) // Has both named and default export
-const RunbooksPage = lazy(() => import('./pages/runbooks'))
 const NotebooksPage = lazy(() => import('./pages/notebooks'))
 const AlertsPage = lazy(() => import('./pages/alerts'))
 const SchemaDiff = lazy(() => import('./pages/schema-diff').then(m => ({ default: m.SchemaDiff })))
@@ -97,7 +96,8 @@ function App() {
             <Route path="/settings" element={<Settings />} />
             <Route path="/invitations" element={<PendingInvitationsPage />} />
             <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/runbooks" element={<RunbooksPage />} />
+            {/* Runbooks merged into Notebooks; keep the path as a redirect. */}
+            <Route path="/runbooks" element={<Navigate to="/notebooks" replace />} />
             <Route path="/notebooks" element={<NotebooksPage />} />
             <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/schema-diff" element={<SchemaDiff />} />
