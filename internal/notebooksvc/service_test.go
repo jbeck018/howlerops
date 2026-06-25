@@ -57,7 +57,7 @@ func sampleNotebook() notebook.Notebook {
 
 func TestService_SaveGetListDeleteRun(t *testing.T) {
 	db := &fakeDB{}
-	svc := New(newStore(t), db)
+	svc := New(Deps{Store: newStore(t), Query: db})
 
 	id, err := svc.Save(sampleNotebook())
 	if err != nil {
@@ -80,7 +80,7 @@ func TestService_SaveGetListDeleteRun(t *testing.T) {
 		t.Errorf("list mismatch: %+v", list)
 	}
 
-	res, err := svc.Run(context.Background(), id, map[string]any{"region": "west"}, false)
+	res, err := svc.Run(context.Background(), id, RunOptions{Inputs: map[string]any{"region": "west"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestService_SaveGetListDeleteRun(t *testing.T) {
 }
 
 func TestService_SaveRejectsInvalid(t *testing.T) {
-	svc := New(newStore(t), &fakeDB{})
+	svc := New(Deps{Store: newStore(t), Query: &fakeDB{}})
 	bad := notebook.Notebook{Name: "x", Cells: []notebook.Cell{{ID: "a", Kind: notebook.CellSQL, ConnectionID: "c"}}}
 	if _, err := svc.Save(bad); err == nil {
 		t.Error("expected validation error for SQL cell with no SQL")
@@ -111,8 +111,8 @@ func TestService_SaveRejectsInvalid(t *testing.T) {
 }
 
 func TestService_RunMissing(t *testing.T) {
-	svc := New(newStore(t), &fakeDB{})
-	if _, err := svc.Run(context.Background(), "nope", nil, false); err == nil {
+	svc := New(Deps{Store: newStore(t), Query: &fakeDB{}})
+	if _, err := svc.Run(context.Background(), "nope", RunOptions{}); err == nil {
 		t.Error("expected error for missing notebook")
 	}
 }

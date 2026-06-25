@@ -12,8 +12,10 @@ import (
 )
 
 // WailsNotebookService exposes notebook CRUD and execution to the frontend. It
-// wraps the Wails-free internal/notebooksvc orchestration, running SQL cells
-// read-only via the database service.
+// wraps the Wails-free internal/notebooksvc orchestration: read SQL cells run
+// read-only, action cells run as writes (gated by the dry-run/approval guard),
+// notify cells emit events, and cross-cell composition runs on the DuckDB
+// compute engine when available.
 type WailsNotebookService struct {
 	deps  *SharedDeps
 	store *storage.NotebookStore
@@ -31,7 +33,14 @@ func (s *WailsNotebookService) service() (*notebooksvc.Service, error) {
 	if s.store == nil {
 		return nil, fmt.Errorf("notebook storage is not initialized")
 	}
-	return notebooksvc.New(s.store, &notebookSQLExecutor{deps: s.deps}), nil
+	exec := &notebookSQLExecutor{deps: s.deps}
+	return notebooksvc.New(notebooksvc.Deps{
+		Store:   s.store,
+		Query:   exec,
+		Action:  exec,
+		Notify:  &notebookNotifier{deps: s.deps},
+		Stagers: newNotebookStagers(s.deps),
+	}), nil
 }
 
 // SaveNotebook validates and persists a notebook definition, returning its ID.
@@ -69,7 +78,7 @@ func (s *WailsNotebookService) GetNotebook(id string) (*notebooksvc.DefinitionDT
 	return &def, nil
 }
 
-// DeleteNotebook removes a notebook.
+// DeleteNotebook removes a notebook and its history.
 func (s *WailsNotebookService) DeleteNotebook(id string) error {
 	svc, err := s.service()
 	if err != nil {
@@ -83,6 +92,14 @@ type RunNotebookRequest struct {
 	NotebookID  string         `json:"notebookId"`
 	Inputs      map[string]any `json:"inputs"`
 	StopOnError bool           `json:"stopOnError"`
+	// DryRun plans writes/notifications without performing them.
+	DryRun bool `json:"dryRun"`
+	// AutoApprove permits action (write) cells without an interactive prompt; the
+	// frontend confirms with the user before sending this.
+	AutoApprove bool `json:"autoApprove"`
+	// Only restricts execution to these cell IDs plus their descendants — the
+	// reactive re-run triggered when a single cell changes. Empty = full run.
+	Only []string `json:"only,omitempty"`
 }
 
 // RunNotebook executes a stored notebook and returns the per-cell outputs.
@@ -91,7 +108,14 @@ func (s *WailsNotebookService) RunNotebook(req RunNotebookRequest) (*notebooksvc
 	if err != nil {
 		return nil, err
 	}
-	res, err := svc.Run(context.Background(), req.NotebookID, req.Inputs, req.StopOnError)
+	res, err := svc.Run(context.Background(), req.NotebookID, notebooksvc.RunOptions{
+		Inputs:         req.Inputs,
+		StopOnError:    req.StopOnError,
+		DryRun:         req.DryRun,
+		AutoApprove:    req.AutoApprove,
+		Only:           req.Only,
+		DefaultTimeout: 60 * time.Second,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +123,17 @@ func (s *WailsNotebookService) RunNotebook(req RunNotebookRequest) (*notebooksvc
 	return &dto, nil
 }
 
-// notebookSQLExecutor adapts the database service to notebooksvc.SQLExecutor.
+// NotebookHistory returns recent runs for a notebook.
+func (s *WailsNotebookService) NotebookHistory(id string, limit int) ([]storage.NotebookRun, error) {
+	svc, err := s.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.History(id, limit)
+}
+
+// notebookSQLExecutor adapts the database service to the notebook engine's read
+// (Query) and write (Exec) capabilities.
 type notebookSQLExecutor struct{ deps *SharedDeps }
 
 func (e *notebookSQLExecutor) Query(_ context.Context, connectionID, sql string) (*notebook.QueryResult, error) {
@@ -111,8 +145,25 @@ func (e *notebookSQLExecutor) Query(_ context.Context, connectionID, sql string)
 	if err != nil {
 		return nil, err
 	}
+	return toNotebookQueryResult(res), nil
+}
+
+func (e *notebookSQLExecutor) Exec(_ context.Context, connectionID, sql string) (int64, error) {
+	res, err := e.deps.DatabaseService.ExecuteQuery(connectionID, sql, &database.QueryOptions{
+		ReadOnly: false,
+		Timeout:  60 * time.Second,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return res.Affected, nil
+}
+
+// toNotebookQueryResult converts the positional database result into the
+// column-keyed shape the notebook engine consumes.
+func toNotebookQueryResult(res *database.QueryResult) *notebook.QueryResult {
 	if res == nil {
-		return &notebook.QueryResult{}, nil
+		return &notebook.QueryResult{}
 	}
 	out := &notebook.QueryResult{Columns: res.Columns, RowCount: res.RowCount}
 	for _, row := range res.Rows {
@@ -124,5 +175,16 @@ func (e *notebookSQLExecutor) Query(_ context.Context, connectionID, sql string)
 		}
 		out.Rows = append(out.Rows, m)
 	}
-	return out, nil
+	return out
+}
+
+// notebookNotifier adapts the event emitter to the notebook engine's Notifier.
+type notebookNotifier struct{ deps *SharedDeps }
+
+func (n *notebookNotifier) Notify(_ context.Context, channel, message string) error {
+	n.deps.emitEvent("notebook:notification", map[string]interface{}{
+		"channel": channel,
+		"message": message,
+	})
+	return nil
 }
