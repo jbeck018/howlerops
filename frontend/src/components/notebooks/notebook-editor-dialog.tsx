@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import { ParamInputsEditor } from '@/components/shared/param-inputs-editor'
+import { CodeMirrorEditor } from '@/components/codemirror-editor'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -288,16 +289,19 @@ export function NotebookEditorDialog({ open, onOpenChange, initial, onSaved }: N
                         )}
                       </SelectContent>
                     </Select>
-                    <Textarea
-                      value={cell.sql ?? ''}
-                      placeholder={
-                        cell.kind === 'action'
-                          ? 'UPDATE ... / DELETE ... (use {{param}} to bind)'
-                          : 'SELECT ... (use {{param}}, or FROM <other_handle> to compose)'
-                      }
-                      onChange={(e) => updateCell(i, { sql: e.target.value })}
-                      className="min-h-[80px] font-mono text-xs"
-                    />
+                    <div className="overflow-hidden rounded border">
+                      <CodeMirrorEditor
+                        value={cell.sql ?? ''}
+                        onChange={(v) => updateCell(i, { sql: v })}
+                        height="140px"
+                        theme={typeof document !== 'undefined' && document.documentElement.classList.contains('dark') ? 'dark' : 'light'}
+                        placeholder={
+                          cell.kind === 'action'
+                            ? 'UPDATE ... / DELETE ... (use {{param}} to bind)'
+                            : 'SELECT ... (use {{param}}, or FROM <other_handle> to compose)'
+                        }
+                      />
+                    </div>
                   </>
                 )}
 
