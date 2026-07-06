@@ -1,5 +1,5 @@
-import { Check, ChevronsUpDown, Database, Network, Search } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { Check, ChevronRight, ChevronsUpDown, Database, Network, Search } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useShallow } from "zustand/react/shallow"
 
 import { UNASSIGNED_ENVIRONMENT_LABEL } from "@/components/connection-manager/types"
@@ -55,6 +55,18 @@ export function ConnectionDatabasePicker() {
   const [filter, setFilter] = useState("")
   const [databases, setDatabases] = useState<string[]>([])
   const [dbLoading, setDbLoading] = useState(false)
+  // Environment folders the user has manually collapsed. An active filter
+  // ignores this so search matches are never hidden inside a collapsed folder.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+
+  const toggleGroup = useCallback((key: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
 
   const envConnections = getFilteredConnections()
   // Default mode and the "Multi-DB" toggle both key off the environment-filtered
@@ -251,7 +263,7 @@ export function ConnectionDatabasePicker() {
             </div>
           </div>
 
-          <ScrollArea className="flex-1">
+          <ScrollArea className="min-h-0 flex-1">
             <div className="px-1 py-1">
               <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {mode === "multi" ? "Connections in query" : "Connection"}
@@ -262,19 +274,28 @@ export function ConnectionDatabasePicker() {
                   {sourceConnections.length === 0 ? "No connections." : "No matching connections."}
                 </p>
               ) : (
-                groups.map((group) =>
-                  group.connections.length === 0 ? null : (
+                groups.map((group) => {
+                  if (group.connections.length === 0) return null
+                  // A filter always expands folders so matches stay visible.
+                  const collapsed = !filter.trim() && collapsedGroups.has(group.key)
+                  return (
                     <div key={group.key} className="pb-1">
                       {showFolders && (
-                        <div className="flex items-center justify-between px-2 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/80">
-                          <span className="truncate">{group.label}</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(group.key)}
+                          className="flex w-full items-center gap-1 rounded px-2 pb-0.5 pt-1.5 text-left text-[10px] font-medium uppercase tracking-wide text-muted-foreground/80 hover:bg-muted"
+                          aria-expanded={!collapsed}
+                        >
+                          <ChevronRight className={cn("h-3 w-3 flex-shrink-0 transition-transform", !collapsed && "rotate-90")} />
+                          <span className="flex-1 truncate">{group.label}</span>
                           <span className="ml-1 font-normal">{group.connections.length}</span>
-                        </div>
+                        </button>
                       )}
-                      {group.connections.map(renderConnectionRow)}
+                      {!collapsed && group.connections.map(renderConnectionRow)}
                     </div>
                   )
-                )
+                })
               )}
 
               {/* Single-mode database list for the active connection. */}
