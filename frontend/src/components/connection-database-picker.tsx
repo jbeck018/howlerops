@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from "@/hooks/use-toast"
 import { groupConnectionsByEnvironment } from "@/lib/group-connections-by-environment"
 import { cn } from "@/lib/utils"
@@ -223,8 +222,8 @@ export function ConnectionDatabasePicker() {
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-0">
-        {/* Bounded flex column: toggle + filter pinned, list scrolls, footer pinned. */}
-        <div className="flex max-h-[min(70vh,32rem)] flex-col">
+        {/* toggle + filter pinned, list scrolls (bounded below), footer pinned. */}
+        <div className="flex flex-col">
           {/* Mode toggle */}
           <div className="flex gap-1 border-b p-2">
             <Button
@@ -263,7 +262,9 @@ export function ConnectionDatabasePicker() {
             </div>
           </div>
 
-          <ScrollArea className="min-h-0 flex-1">
+          {/* Native scroll: a direct max-height guarantees the list scrolls
+              regardless of the popover's flex layout. */}
+          <div className="max-h-[60vh] overflow-y-auto overscroll-contain">
             <div className="px-1 py-1">
               <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {mode === "multi" ? "Connections in query" : "Connection"}
@@ -324,7 +325,7 @@ export function ConnectionDatabasePicker() {
                 </div>
               )}
             </div>
-          </ScrollArea>
+          </div>
 
           {mode === "multi" && (
             <p className="border-t px-3 py-2 text-[10px] text-muted-foreground">

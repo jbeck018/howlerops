@@ -106,13 +106,19 @@ export function useTableExport({
       // Sessions are dropped on reload while results persist, so re-establish
       // one first if it's missing. If we can't (no stored credentials, backend
       // unreachable), fall back to exporting the rows already on screen.
+      // connectionId may be the stable id or a live sessionId, so match on both.
       const { useConnectionStore } = await import('../../../store/connection-store')
-      const hasSession = () =>
-        Boolean(useConnectionStore.getState().connections.find((c) => c.id === connectionId)?.sessionId)
+      const findConnection = () =>
+        useConnectionStore
+          .getState()
+          .connections.find((c) => c.id === connectionId || c.sessionId === connectionId)
+      const hasSession = () => Boolean(findConnection()?.sessionId)
 
       if (!hasSession()) {
+        // No live session — re-establish it using the connection's stable id.
+        const reconnectId = findConnection()?.id ?? connectionId
         try {
-          await useConnectionStore.getState().connectToDatabase(connectionId)
+          await useConnectionStore.getState().connectToDatabase(reconnectId)
         } catch {
           // Reconnect failed; handled by the hasSession check below.
         }
