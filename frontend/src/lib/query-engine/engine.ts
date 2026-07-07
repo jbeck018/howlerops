@@ -68,7 +68,13 @@ export function resolveQueryConnection(
     }
   }
 
-  const connection = connections.find((conn) => conn.id === connectionId)
+  // Callers pass either the stable connection id or the backend sessionId
+  // (the results toolbar hands us sessionId while the connection is live).
+  // Match on both so a live connection always resolves, mirroring the
+  // connection store's own lookup.
+  const connection = connections.find(
+    (conn) => conn.id === connectionId || conn.sessionId === connectionId
+  )
   if (!connection?.sessionId) {
     return {
       ok: false,
@@ -78,7 +84,7 @@ export function resolveQueryConnection(
   }
 
   return {
-    connectionId,
+    connectionId: connection.id,
     sessionId: connection.sessionId,
   }
 }

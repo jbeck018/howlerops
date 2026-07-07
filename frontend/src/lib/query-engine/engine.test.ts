@@ -49,6 +49,14 @@ describe('query engine', () => {
     expect(result).toEqual({ connectionId: 'conn-1', sessionId: 'session-1' })
   })
 
+  it('resolves a connection by its session id', () => {
+    // The results toolbar hands the export the live sessionId, not the stable
+    // connection id, so the resolver must match on either.
+    const result = resolveQueryConnection([makeConnection()], 'session-1')
+    expect('ok' in result).toBe(false)
+    expect(result).toEqual({ connectionId: 'conn-1', sessionId: 'session-1' })
+  })
+
   it('returns a useful error when connection is missing', () => {
     const result = resolveQueryConnection([], 'conn-1')
     expect('ok' in result && result.ok === false).toBe(true)
