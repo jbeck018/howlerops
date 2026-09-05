@@ -19,6 +19,7 @@ import { EditorState, Extension, RangeSetBuilder, StateEffect, StateField } from
 import { oneDark } from '@codemirror/theme-one-dark'
 import { Decoration, DecorationSet, EditorView, keymap, ViewPlugin, ViewUpdate } from '@codemirror/view'
 
+import type { QueryContext, TableReference } from './sql-context-parser'
 import { getTablesInScope,isAlias, parseQueryContext, resolveAlias } from './sql-context-parser'
 
 export interface Connection {
@@ -138,6 +139,14 @@ function getConnectionSchemas(
     if (key.toLowerCase() === lower) return value
   }
   return undefined
+}
+
+/**
+ * The identifier a column should be qualified with when it is ambiguous:
+ * the explicit alias when the query declares one, otherwise the table name.
+ */
+function tableQualifier(tableRef: TableReference): string {
+  return tableRef.alias || tableRef.tableName
 }
 
 /**
@@ -435,7 +444,10 @@ export function sqlAutocompletion(columnLoader?: ColumnLoader): Extension {
               // supported clauses).
               if (partialWord.length >= 1) {
 
-                // Load columns from all tables in scope
+                // Load columns from every table in scope first, so we know which
+                // names are genuinely ambiguous before deciding how to label them.
+                const scopedColumns: { tableRef: TableReference; column: Column }[] = []
+
                 for (const tableRef of tablesInScope) {
                   let connection: Connection | undefined
                   let sessionId: string | undefined
@@ -448,47 +460,74 @@ export function sqlAutocompletion(columnLoader?: ColumnLoader): Extension {
                     sessionId = connection?.sessionId
                   }
 
-                  if (sessionId) {
-                    const schemaName = tableRef.schema || 'public'
-                    const cacheKey = `${sessionId}-${schemaName}-${tableRef.tableName}`
-                    let columns: Column[]
+                  if (!sessionId) continue
 
-                    if (columnCache.has(cacheKey)) {
-                      columns = columnCache.get(cacheKey)!
-                    } else {
-                      try {
-                        columns = await columnLoader(sessionId, schemaName, tableRef.tableName)
-                        columnCache.set(cacheKey, columns)
-                      } catch (error) {
-                        console.error('[CodeMirror SQL] Failed to load columns for context:', error)
-                        columns = []
-                      }
+                  const schemaName = tableRef.schema || 'public'
+                  const cacheKey = `${sessionId}-${schemaName}-${tableRef.tableName}`
+                  let columns: Column[]
+
+                  if (columnCache.has(cacheKey)) {
+                    columns = columnCache.get(cacheKey)!
+                  } else {
+                    try {
+                      columns = await columnLoader(sessionId, schemaName, tableRef.tableName)
+                      columnCache.set(cacheKey, columns)
+                    } catch (error) {
+                      console.error('[CodeMirror SQL] Failed to load columns for context:', error)
+                      columns = []
                     }
-
-                    // Add columns with table prefix if multiple tables and smart boosting
-                    const showTablePrefix = tablesInScope.length > 1
-
-                    columns
-                      .filter(col => !partialWord || col.name.toLowerCase().startsWith(partialWord.toLowerCase()))
-                      .forEach(col => {
-                        const label = showTablePrefix
-                          ? `${tableRef.alias || tableRef.tableName}.${col.name}`
-                          : col.name
-
-                        const boost = calculateColumnBoost(col, queryContext, joinOnContext, 80)
-
-                        options.push({
-                          label,
-                          type: 'property',
-                          detail: col.dataType,
-                          info: showTablePrefix
-                            ? `From ${tableRef.alias || tableRef.tableName}${col.nullable ? ' (Nullable)' : ''}`
-                            : (col.nullable ? 'Nullable' : 'Not null'),
-                          boost
-                        })
-                      })
                   }
+
+                  columns
+                    .filter(col => col.name.toLowerCase().startsWith(partialWord.toLowerCase()))
+                    .forEach(column => scopedColumns.push({ tableRef, column }))
                 }
+
+                // A column name is ambiguous only when more than one in-scope
+                // table exposes it. Everything else is inserted bare — the user
+                // typed no qualifier, so we must not invent one.
+                const owners = new Map<string, Set<string>>()
+                scopedColumns.forEach(({ tableRef, column }) => {
+                  const key = column.name.toLowerCase()
+                  const owner = tableQualifier(tableRef)
+                  const existing = owners.get(key)
+                  if (existing) {
+                    existing.add(owner)
+                  } else {
+                    owners.set(key, new Set([owner]))
+                  }
+                })
+
+                const seenLabels = new Set<string>()
+
+                scopedColumns.forEach(({ tableRef, column }) => {
+                  const qualifier = tableQualifier(tableRef)
+                  const ambiguous = (owners.get(column.name.toLowerCase())?.size ?? 0) > 1
+
+                  // Same column from the same table can surface twice when a
+                  // query mentions a table more than once — keep one entry.
+                  const dedupeKey = ambiguous
+                    ? `${qualifier}.${column.name}`.toLowerCase()
+                    : column.name.toLowerCase()
+                  if (seenLabels.has(dedupeKey)) return
+                  seenLabels.add(dedupeKey)
+
+                  const boost = calculateColumnBoost(column, queryContext, joinOnContext, 80)
+
+                  options.push({
+                    // The label is always the bare column name so it still
+                    // matches what the user is typing; only an ambiguous column
+                    // gets table-qualified, and only on insert via `apply`.
+                    label: column.name,
+                    apply: ambiguous ? `${qualifier}.${column.name}` : undefined,
+                    type: 'property',
+                    detail: ambiguous ? `${qualifier} · ${column.dataType}` : column.dataType,
+                    info: tablesInScope.length > 1
+                      ? `From ${qualifier}${column.nullable ? ' (Nullable)' : ''}`
+                      : (column.nullable ? 'Nullable' : 'Not null'),
+                    boost
+                  })
+                })
 
                 if (options.length > 0) {
                   return {

@@ -192,16 +192,14 @@ export const wailsApiClient: ApiClient = {
 
     insertRow: async (payload: InsertRowRequest): Promise<InsertRowResult> => {
       const result = await wailsEndpoints.queries.insertRow(payload)
-      // Transform row from Record<string, unknown> to unknown[] if needed
-      let row: unknown[] | undefined
-      if (result.row) {
-        if (Array.isArray(result.row)) {
-          row = result.row
-        } else if (typeof result.row === 'object') {
-          // Convert object to array of values
-          row = Object.values(result.row)
-        }
-      }
+      // The backend returns the inserted row as a column-name -> value map.
+      // Keep it keyed: callers merge it back into the grid row by column name,
+      // so flattening it to an array silently dropped every server-generated
+      // value (ids, defaults, timestamps) from the newly inserted row.
+      const row =
+        result.row && typeof result.row === 'object' && !Array.isArray(result.row)
+          ? (result.row as Record<string, unknown>)
+          : undefined
       return {
         success: result.success,
         message: result.message,

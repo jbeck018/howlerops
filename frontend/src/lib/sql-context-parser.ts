@@ -64,7 +64,11 @@ export interface QueryContext {
  */
 export function parseQueryContext(query: string, cursorPos: number): QueryContext {
   // Get the current statement (in case of multiple statements separated by ;)
-  const currentStatement = getCurrentStatement(query, cursorPos)
+  // together with the cursor offset *inside* that statement — the raw cursorPos
+  // is an offset into the whole document, so using it against a sliced/trimmed
+  // statement misidentifies the clause (and suppresses column suggestions).
+  const { statement: currentStatement, cursorPos: statementCursorPos } =
+    getCurrentStatement(query, cursorPos)
 
   // Parse table references from FROM and JOIN clauses
   const tables = parseTableReferences(currentStatement)
@@ -80,7 +84,7 @@ export function parseQueryContext(query: string, cursorPos: number): QueryContex
   })
 
   // Detect current clause
-  const currentClause = detectCurrentClause(currentStatement, cursorPos)
+  const currentClause = detectCurrentClause(currentStatement, statementCursorPos)
 
   return {
     tables,
@@ -93,20 +97,64 @@ export function parseQueryContext(query: string, cursorPos: number): QueryContex
 
 /**
  * Get the current SQL statement (handles multiple statements separated by ;)
+ * plus the cursor's offset within that trimmed statement.
  */
-function getCurrentStatement(query: string, cursorPos: number): string {
+function getCurrentStatement(
+  query: string,
+  cursorPos: number
+): { statement: string; cursorPos: number } {
   const statements = query.split(';')
-  let pos = 0
+  let start = 0
 
-  for (const statement of statements) {
-    pos += statement.length
-    if (pos >= cursorPos) {
-      return statement.trim()
+  for (let i = 0; i < statements.length; i++) {
+    const raw = statements[i]
+    const end = start + raw.length
+
+    if (cursorPos <= end || i === statements.length - 1) {
+      const leading = raw.length - raw.trimStart().length
+      const statement = raw.trim()
+      const relative = Math.max(0, Math.min(statement.length, cursorPos - start - leading))
+      return { statement, cursorPos: relative }
     }
-    pos += 1 // for the semicolon
+
+    start = end + 1 // skip the semicolon
   }
 
-  return statements[statements.length - 1].trim()
+  const last = statements[statements.length - 1].trim()
+  return { statement: last, cursorPos: last.length }
+}
+
+/**
+ * Words that can directly follow a table name in FROM/JOIN but are NOT aliases.
+ * Without this guard `FROM accounts WHERE ...` parses "WHERE" as the table's
+ * alias, which then leaks into the alias map and into completion labels as a
+ * bogus qualifier (e.g. `where.accounts` instead of `accounts`).
+ */
+const NON_ALIAS_KEYWORDS = new Set([
+  'WHERE', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS', 'OUTER', 'NATURAL',
+  'ON', 'USING', 'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'OFFSET', 'FETCH', 'UNION',
+  'INTERSECT', 'EXCEPT', 'WINDOW', 'SET', 'VALUES', 'RETURNING', 'FOR', 'LATERAL',
+  'AS', 'SELECT', 'FROM', 'INTO', 'WITH', 'TABLESAMPLE', 'AND', 'OR', 'NOT',
+  'QUALIFY', 'PARTITION', 'SAMPLE', 'ASOF', 'ANTI', 'SEMI', 'PIVOT', 'UNPIVOT',
+])
+
+/**
+ * Regex fragment for the optional `[AS] alias` that may follow a table name.
+ * The negative lookahead keeps the alias group from *consuming* a keyword:
+ * without it `FROM orders JOIN accounts` swallows "JOIN" as the alias of
+ * `orders`, and the joined table is never parsed at all.
+ */
+const ALIAS_SUFFIX = `(?:\\s+(?:AS\\s+)?(?!(?:${[...NON_ALIAS_KEYWORDS].join('|')})\\b)(\\w+))?`
+
+/**
+ * Treat a captured trailing word as an alias only when it is a real identifier
+ * and not a SQL keyword that merely follows the table name. The lookahead above
+ * covers the common cases; this is the belt-and-braces check on the capture.
+ */
+function normaliseAlias(candidate: string | undefined): string | undefined {
+  if (!candidate) return undefined
+  if (NON_ALIAS_KEYWORDS.has(candidate.toUpperCase())) return undefined
+  return candidate
 }
 
 /**
@@ -120,7 +168,7 @@ function parseTableReferences(query: string): TableReference[] {
 
   // Pattern 1: Multi-DB format - @connection.schema.table [AS] alias
   // Matches: @db1.public.accounts, @db1.public.accounts a, @db1.public.accounts AS acc
-  const multiDBPattern = /@([\w-]+)\.([\w-]+)\.([\w-]+)(?:\s+(?:AS\s+)?(\w+))?/gi
+  const multiDBPattern = new RegExp(`@([\\w-]+)\\.([\\w-]+)\\.([\\w-]+)${ALIAS_SUFFIX}`, 'gi')
   let match: RegExpExecArray | null
 
   while ((match = multiDBPattern.exec(cleaned)) !== null) {
@@ -130,14 +178,14 @@ function parseTableReferences(query: string): TableReference[] {
       tableName,
       schema,
       connectionId,
-      alias: alias || undefined,
+      alias: normaliseAlias(alias),
       isMultiDB: true
     })
   }
 
   // Pattern 2: Schema-qualified format - schema.table [AS] alias
   // Matches: public.accounts, dbo.users AS u
-  const schemaTablePattern = /(?:FROM|JOIN)\s+([\w-]+)\.([\w-]+)(?:\s+(?:AS\s+)?(\w+))?/gi
+  const schemaTablePattern = new RegExp(`\\b(?:FROM|JOIN)\\s+([\\w-]+)\\.([\\w-]+)${ALIAS_SUFFIX}`, 'gi')
 
   while ((match = schemaTablePattern.exec(cleaned)) !== null) {
     const [, schema, tableName, alias] = match
@@ -150,14 +198,14 @@ function parseTableReferences(query: string): TableReference[] {
       identifier: `${schema}.${tableName}`,
       tableName,
       schema,
-      alias: alias || undefined,
+      alias: normaliseAlias(alias),
       isMultiDB: false
     })
   }
 
   // Pattern 3: Simple table format - table [AS] alias
   // Matches: accounts, users AS u, orders AS o
-  const simpleTablePattern = /(?:FROM|JOIN)\s+([\w-]+)(?:\s+(?:AS\s+)?(\w+))?/gi
+  const simpleTablePattern = new RegExp(`\\b(?:FROM|JOIN)\\s+([\\w-]+)${ALIAS_SUFFIX}`, 'gi')
 
   while ((match = simpleTablePattern.exec(cleaned)) !== null) {
     const [, tableName, alias] = match
@@ -174,18 +222,10 @@ function parseTableReferences(query: string): TableReference[] {
     const nextChar = cleaned[match.index + match[0].length]
     if (nextChar === '.') continue
 
-    // Skip if we already captured this as part of schema.table
-    const alreadyCaptured = tables.some(t =>
-      t.tableName === tableName &&
-      match &&
-      cleaned.slice(Math.max(0, match.index - 20), match.index).includes('.')
-    )
-    if (alreadyCaptured) continue
-
     tables.push({
       identifier: tableName,
       tableName,
-      alias: alias || undefined,
+      alias: normaliseAlias(alias),
       isMultiDB: false
     })
   }

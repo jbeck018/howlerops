@@ -135,14 +135,15 @@ export function useTableEditing({
       __isNewRow: true,
     }
 
+    // Start every column empty. `defaultValue` from the backend is the column's
+    // DEFAULT *expression* as the database reports it (`nextval('t_id_seq')`,
+    // `now()`, `gen_random_uuid()`), not a literal — pre-filling cells with it
+    // meant the insert sent those strings as bound parameters, so a new row
+    // either failed on a type error or stored the expression as text.
+    // Leaving the cell empty omits the column from the INSERT and lets the
+    // database apply the real default.
     columnNames.forEach((columnName) => {
-      const key = columnName.toLowerCase()
-      const metaColumn = metadataLookup.get(key)
-      if (metaColumn?.defaultValue !== undefined) {
-        emptyRow[columnName] = metaColumn.defaultValue as CellValue
-      } else {
-        emptyRow[columnName] = undefined
-      }
+      emptyRow[columnName] = undefined
     })
 
     const nextRows = [...rows, emptyRow]
@@ -158,7 +159,6 @@ export function useTableEditing({
   }, [
     canInsertRows,
     columnNames,
-    metadataLookup,
     rows,
     originalRows,
     resultId,
@@ -170,7 +170,9 @@ export function useTableEditing({
   const handleSave = useCallback(async () => {
     const currentRows = resolveCurrentRows()
 
-    if (!metadata?.enabled || !metadata || rows.length === 0) {
+    // NB: don't gate on rows.length — inserting the first row into an empty
+    // table is a save with no pre-existing rows. dirtyRowIds is the real guard.
+    if (!metadata?.enabled || !metadata) {
       return
     }
     if (!connectionId) {

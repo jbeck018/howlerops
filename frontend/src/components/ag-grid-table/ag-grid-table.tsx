@@ -288,11 +288,30 @@ const AGGridTableInner: React.FC<EditableTableProps> = ({
         column.monospace && 'font-mono'
       );
 
+      // An empty cell in a not-yet-inserted row is not NULL — the database will
+      // fill it from the column DEFAULT (or the identity sequence). Show what
+      // will actually happen instead of a misleading "NULL".
+      const showsDatabaseDefault =
+        !!rowData.__isNewRow &&
+        (value === null || value === undefined) &&
+        (column.autoNumber || column.hasDefault);
+
       return (
         <div className="group flex items-center h-full w-full relative">
           {isDirty && <DirtyTriangle />}
-          <div className={textClasses} title={String(value ?? '')}>
-            {value === null || value === undefined ? (
+          <div
+            className={textClasses}
+            title={
+              showsDatabaseDefault
+                ? `Set by the database on insert: ${column.defaultLabel ?? '[default]'}`
+                : String(value ?? '')
+            }
+          >
+            {showsDatabaseDefault ? (
+              <span className="cell-default text-muted-foreground italic">
+                {column.autoNumber ? '[auto]' : '[default]'}
+              </span>
+            ) : value === null || value === undefined ? (
               <span className="cell-null">NULL</span>
             ) : (
               String(value)
@@ -761,13 +780,24 @@ const AGGridTableInner: React.FC<EditableTableProps> = ({
   }, [gridApi, globalFilter, enableGlobalFilter]);
 
   /**
-   * Notify parent of dirty changes
+   * Notify parent of dirty changes.
+   *
+   * Rows appended via "Add row" are dirty from the moment they exist, but the
+   * grid only learns a row is dirty once a cell in it is edited. Union in every
+   * row still flagged __isNewRow so editing an unrelated cell doesn't drop the
+   * pending insert from the parent's save set.
    */
   useEffect(() => {
-    if (onDirtyChange) {
-      onDirtyChange(Array.from(dirtyRows));
+    if (!onDirtyChange) return;
+
+    const ids = new Set(dirtyRows);
+    for (const row of data) {
+      if (row.__isNewRow && row.__rowId) {
+        ids.add(row.__rowId);
+      }
     }
-  }, [dirtyRows, onDirtyChange]);
+    onDirtyChange(Array.from(ids));
+  }, [dirtyRows, data, onDirtyChange]);
 
   /**
    * Create table context for toolbar/footer renderers
@@ -799,7 +829,33 @@ const AGGridTableInner: React.FC<EditableTableProps> = ({
     },
     actions: {
       updateCell: () => false,
-      startEditing: () => {},
+      // Open the inline editor on a specific cell. Used when a row is appended
+      // ("Add row"): without this the new row is inserted somewhere off-screen
+      // with no editor focused, so it looks like nothing happened.
+      startEditing: (rowId: string, columnId: string) => {
+        // A freshly appended row reaches the grid through the rowData prop, so
+        // its node may not exist on the very first attempt. Retry for a few
+        // frames rather than silently giving up.
+        let attempts = 0;
+
+        const focusCell = () => {
+          const api = gridRef.current?.api;
+          if (!api || api.isDestroyed()) return;
+
+          const rowNode = api.getRowNode(rowId);
+          if (!rowNode || rowNode.rowIndex == null) {
+            if (attempts++ < 5) requestAnimationFrame(focusCell);
+            return;
+          }
+
+          api.ensureIndexVisible(rowNode.rowIndex, 'middle');
+          api.ensureColumnVisible(columnId);
+          api.setFocusedCell(rowNode.rowIndex, columnId);
+          api.startEditingCell({ rowIndex: rowNode.rowIndex, colKey: columnId });
+        };
+
+        focusCell();
+      },
       updateEditingCell: () => {},
       cancelEditing: () => {},
       saveEditing: async () => false,

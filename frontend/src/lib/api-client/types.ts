@@ -203,7 +203,12 @@ export interface DeleteRowsRequest {
 export interface InsertRowResult {
   success: boolean
   message?: string
-  row?: unknown[]
+  /**
+   * The persisted row as returned by the backend, keyed by result column name.
+   * Carries server-generated values (sequence/identity ids, column defaults,
+   * trigger output) so the grid can show the row exactly as it was stored.
+   */
+  row?: Record<string, unknown>
 }
 
 export interface DeleteRowsResult {

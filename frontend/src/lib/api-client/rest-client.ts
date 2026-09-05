@@ -381,7 +381,11 @@ export const restApiClient: ApiClient = {
 
     insertRow: async (payload: InsertRowRequest): Promise<InsertRowResult> => {
       try {
-        const result = await request<{ success: boolean; message?: string; row?: unknown[] }>(
+        const result = await request<{
+          success: boolean
+          message?: string
+          row?: Record<string, unknown>
+        }>(
           'POST',
           '/api/queries/insert-row',
           payload

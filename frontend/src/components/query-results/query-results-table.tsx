@@ -165,8 +165,12 @@ function QueryResultsTableComponent({
 
   // Derived values (must be before useEffect that uses them)
   const safeAffectedRows = Number.isFinite(affectedRows) ? affectedRows : 0
-  const hasTabularResults = columnNames.length > 0 && rows.length > 0
-  const isModificationStatement = columnNames.length === 0
+  // A result is tabular as soon as it has columns. A SELECT that returns zero
+  // rows still needs the grid: it carries the headers, the toolbar and the
+  // "Add row" button — without it there was no way to insert the first row
+  // into an empty table.
+  const hasTabularResults = columnNames.length > 0
+  const hasNoRows = hasTabularResults && rows.length === 0
   const affectedRowsMessage =
     safeAffectedRows === 1
       ? '1 row affected.'
@@ -256,23 +260,20 @@ function QueryResultsTableComponent({
       {!hasTabularResults ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-muted-foreground">
-            {isModificationStatement ? (
-              <>
-                <CheckCircle2 className="h-12 w-12 mx-auto mb-4 text-primary" />
-                <p className="text-lg font-medium mb-1">Statement executed successfully</p>
-                <p className="text-sm">{affectedRowsMessage}</p>
-              </>
-            ) : (
-              <>
-                <Inbox className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium mb-1">No results found</p>
-                <p className="text-sm">Your query returned 0 rows</p>
-              </>
-            )}
+            <CheckCircle2 className="h-12 w-12 mx-auto mb-4 text-primary" />
+            <p className="text-lg font-medium mb-1">Statement executed successfully</p>
+            <p className="text-sm">{affectedRowsMessage}</p>
           </div>
         </div>
       ) : (
         <>
+          {hasNoRows && (
+            <div className="flex items-center gap-2 border-b border-border bg-muted/20 px-4 py-2 text-sm text-muted-foreground">
+              <Inbox className="h-4 w-4 opacity-70" />
+              <span>Your query returned 0 rows.</span>
+              {editing.canInsertRows && <span>Use &ldquo;Add Row&rdquo; to insert one.</span>}
+            </div>
+          )}
           <AGGridTable
             data={rows as TableRow[]}
             columns={editing.tableColumns}
