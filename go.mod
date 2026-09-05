@@ -1,8 +1,6 @@
 module github.com/jbeck018/howlerops
 
-go 1.27
-
-toolchain go1.27.1
+go 1.26.0
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.48.0
