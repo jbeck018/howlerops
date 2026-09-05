@@ -209,6 +209,17 @@ export const ChartRenderer = React.memo(function ChartRenderer({
     onDrillDown(context)
   }
 
+  /**
+   * Recharts hands a Pie's click handler the rendered *sector*, not the datum
+   * that produced it — the original row is on `payload`. Unwrap it so a pie
+   * slice drills down on the same values every other chart type does.
+   */
+  const handleSectorClick = (sector: unknown) => {
+    const payload = (sector as { payload?: unknown } | null)?.payload
+    const dataPoint = (payload ?? sector) as ChartDataPoint | undefined
+    if (dataPoint) handleElementClick(dataPoint)
+  }
+
   // Handle empty data
   if (chartData.length === 0) {
     return (
@@ -254,7 +265,7 @@ export const ChartRenderer = React.memo(function ChartRenderer({
               cy="50%"
               outerRadius={Math.min(height / 2.5, 120)}
               label={({ name, percent }) => `${name}: ${((percent || 0) * 100).toFixed(0)}%`}
-              onClick={drillDownEnabled ? handleElementClick : undefined}
+              onClick={drillDownEnabled ? handleSectorClick : undefined}
               cursor={drillDownEnabled ? 'pointer' : 'default'}
             >
               {chartData.map((_, index) => (
