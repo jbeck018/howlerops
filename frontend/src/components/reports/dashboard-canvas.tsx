@@ -18,7 +18,7 @@ import {
   Undo,
 } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useRef,useState } from 'react'
-import { Layout as RGLLayout,Responsive, WidthProvider } from 'react-grid-layout'
+import { type Layout as RGLLayout, type LayoutItem as RGLLayoutItem, Responsive, useContainerWidth } from 'react-grid-layout'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -41,7 +41,6 @@ import type {
   ReportRunResult,
 } from '@/types/reports'
 
-const ResponsiveGridLayout = WidthProvider(Responsive)
 
 // Helper function to render icon for component type - renders JSX directly to avoid dynamic component issues
 const renderComponentIcon = (type: ReportComponentType, className: string) => {
@@ -109,8 +108,13 @@ export function DashboardCanvas({
     return new Map(results.results.map((result) => [result.componentId, result]))
   }, [results])
 
+  // react-grid-layout v2 dropped the WidthProvider HOC; measure the canvas
+  // ourselves and pass the width in. `mounted` gates the first render so the
+  // grid never lays out against a 0px width and then jumps.
+  const { width: gridWidth, containerRef: gridContainerRef, mounted: gridMounted } = useContainerWidth()
+
   // Convert ReportLayoutSlot to react-grid-layout Layout format
-  const gridLayout = useMemo((): RGLLayout[] => {
+  const gridLayout = useMemo((): RGLLayoutItem[] => {
     return layout.map((slot) => ({
       i: slot.componentId,
       x: slot.x,
@@ -126,7 +130,7 @@ export function DashboardCanvas({
 
   // Handle layout changes from react-grid-layout
   const handleLayoutChange = useCallback(
-    (newLayout: RGLLayout[]) => {
+    (newLayout: RGLLayout) => {
       const updatedLayout: ReportLayoutSlot[] = newLayout.map((item) => ({
         componentId: item.i,
         x: item.x,
@@ -259,21 +263,26 @@ export function DashboardCanvas({
       )}
 
       {/* Grid Canvas */}
-      <div className={cn('rounded-lg border bg-background p-4', editMode && 'bg-muted/10')}>
-        <ResponsiveGridLayout
+      <div
+        ref={gridContainerRef}
+        className={cn('rounded-lg border bg-background p-4', editMode && 'bg-muted/10')}
+      >
+        {gridMounted && (
+        <Responsive
           className="layout"
+          width={gridWidth}
           layouts={{ lg: gridLayout }}
           breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480 }}
           cols={{ lg: 12, md: 10, sm: 6, xs: 4 }}
           rowHeight={60}
           margin={[16, 16]}
           containerPadding={[0, 0]}
-          isDraggable={editMode}
-          isResizable={editMode}
+          // v2 groups drag/resize behaviour into config objects. Vertical
+          // compaction and CSS-transform positioning are the v2 defaults, so the
+          // old compactType / useCSSTransforms props are simply gone.
+          dragConfig={{ enabled: editMode, handle: '.drag-handle' }}
+          resizeConfig={{ enabled: editMode }}
           onLayoutChange={handleLayoutChange}
-          draggableHandle=".drag-handle"
-          useCSSTransforms={true}
-          compactType="vertical"
         >
           {components.map((component) => (
             <div key={component.id}>
@@ -288,7 +297,8 @@ export function DashboardCanvas({
               />
             </div>
           ))}
-        </ResponsiveGridLayout>
+        </Responsive>
+        )}
       </div>
 
       {/* Floating Add Button */}

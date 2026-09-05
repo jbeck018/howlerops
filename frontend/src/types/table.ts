@@ -10,7 +10,8 @@
  * @module types/table
  */
 
-import { ColumnFiltersState, Header,SortingState } from '@tanstack/react-table';
+import { ColumnFiltersState, Header, SortingState } from '@tanstack/react-table';
+import type { TableFeatures } from '@tanstack/table-core';
 import { ReactNode } from 'react';
 
 import type { ResultDisplayMode } from '../lib/query-result-storage';
@@ -259,7 +260,7 @@ export interface StatusBarProps {
 }
 
 export interface ColumnHeaderProps {
-  header: Header<TableRow, unknown>;
+  header: Header<TableFeatures, TableRow>;
   canSort?: boolean;
   canFilter?: boolean;
   canResize?: boolean;
