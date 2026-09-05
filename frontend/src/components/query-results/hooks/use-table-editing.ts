@@ -332,7 +332,6 @@ export function useTableEditing({
     query,
     resultId,
     resolveCurrentRows,
-    rows,
     tableContextRef,
     patchResultRows,
   ])
