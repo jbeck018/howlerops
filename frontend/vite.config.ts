@@ -88,7 +88,6 @@ export default defineConfig(({ mode }) => {
             }
             // Network/gRPC/Protobuf
             if (id.includes('node_modules/@grpc/') ||
-                id.includes('node_modules/@improbable-eng/') ||
                 id.includes('node_modules/axios') ||
                 id.includes('node_modules/socket.io')) {
               return 'vendor-network'
