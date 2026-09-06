@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const BINDINGS_DIR = join(HERE, '../bindings/github.com/jbeck018/howlerops')
 
-/** file-base -> ServiceName, parsed from the generated index.ts imports. */
+/** file-base -> ServiceName, parsed from the generated index.js imports. */
 function parseServiceFiles(indexSrc) {
   const files = []
   const re = /import \* as \w+ from "\.\/([\w-]+)\.js";/g
@@ -41,14 +41,14 @@ function exportedFunctions(src) {
 }
 
 function main() {
-  const serviceFiles = parseServiceFiles(readFileSync(join(BINDINGS_DIR, 'index.ts'), 'utf8')).sort()
+  const serviceFiles = parseServiceFiles(readFileSync(join(BINDINGS_DIR, 'index.js'), 'utf8')).sort()
 
   const methodToFile = {} // method -> service file base
   const collisions = []
   for (const fileBase of serviceFiles) {
     let src
     try {
-      src = readFileSync(join(BINDINGS_DIR, `${fileBase}.ts`), 'utf8')
+      src = readFileSync(join(BINDINGS_DIR, `${fileBase}.js`), 'utf8')
     } catch {
       continue
     }

@@ -69,11 +69,11 @@ export async function testAIProviderConnection(params: AITestParams): Promise<AI
     return response
   } catch (error) {
     console.error(`AI provider test failed for ${params.provider}:`, error)
-    return {
+    return new models.AITestResponse({
       success: false,
       message: '',
       error: error instanceof Error ? error.message : 'Unknown error occurred'
-    }
+    })
   }
 }
 
@@ -86,11 +86,11 @@ export async function launchClaudeCodeLogin(binaryPath: string): Promise<AITestR
     return response
   } catch (error) {
     console.error('Claude login failed:', error)
-    return {
+    return new models.AITestResponse({
       success: false,
       message: '',
       error: error instanceof Error ? error.message : 'Unable to launch Claude login',
-    }
+    })
   }
 }
 
@@ -103,11 +103,11 @@ export async function launchCodexLogin(binaryPath: string): Promise<AITestRespon
     return response
   } catch (error) {
     console.error('Codex login failed:', error)
-    return {
+    return new models.AITestResponse({
       success: false,
       message: '',
       error: error instanceof Error ? error.message : 'Unable to launch Codex login',
-    }
+    })
   }
 }
 

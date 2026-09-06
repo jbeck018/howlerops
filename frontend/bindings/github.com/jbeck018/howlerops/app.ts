@@ -18,16 +18,20 @@ const loaders: Record<string, () => Promise<any>> = {
   'storageservice': () => import('./storageservice.js'),
   'updateservice': () => import('./updateservice.js'),
   'wailsaiservice': () => import('./wailsaiservice.js'),
+  'wailsalertservice': () => import('./wailsalertservice.js'),
   'wailsauthservice': () => import('./wailsauthservice.js'),
   'wailsfileservice': () => import('./wailsfileservice.js'),
   'wailskeyboardservice': () => import('./wailskeyboardservice.js'),
+  'wailsnotebookservice': () => import('./wailsnotebookservice.js'),
   'wailsreportservice': () => import('./wailsreportservice.js'),
+  'wailsrunbookservice': () => import('./wailsrunbookservice.js'),
 }
 
 const methodService: Record<string, string> = {
   AddKeyboardBinding: 'wailskeyboardservice',
   AssignTableSteward: 'catalogservice',
   CancelQueryStream: 'queryservice',
+  CheckAlertNow: 'wailsalertservice',
   CheckBiometricAvailability: 'wailsauthservice',
   CheckForUpdates: 'updateservice',
   CheckStoredToken: 'wailsauthservice',
@@ -45,11 +49,14 @@ const methodService: Record<string, string> = {
   CreateTableCatalogEntry: 'catalogservice',
   CreateTempFile: 'wailsfileservice',
   DeleteAIMemorySession: 'wailsaiservice',
+  DeleteAlert: 'wailsalertservice',
   DeleteCatalogTag: 'catalogservice',
   DeleteFile: 'wailsfileservice',
+  DeleteNotebook: 'wailsnotebookservice',
   DeletePassword: 'wailsfileservice',
   DeleteQueryRows: 'queryservice',
   DeleteReport: 'wailsreportservice',
+  DeleteRunbook: 'wailsrunbookservice',
   DeleteSchemaSnapshot: 'schemadiffservice',
   DeleteSyntheticView: 'storageservice',
   DeleteTableCatalogEntry: 'catalogservice',
@@ -68,12 +75,14 @@ const methodService: Record<string, string> = {
   FinishWebAuthnRegistration: 'wailsauthservice',
   FixSQLError: 'wailsaiservice',
   FixSQLErrorWithOptions: 'wailsaiservice',
+  GenerateInsightBrief: 'wailsaiservice',
   GenerateMigrationSQL: 'schemadiffservice',
   GenerateMigrationSQLFromSnapshot: 'schemadiffservice',
   GenerateSQLFromNaturalLanguage: 'wailsaiservice',
   GenericChat: 'wailsaiservice',
   GetAIConfiguration: 'wailsaiservice',
   GetAIProviderStatus: 'wailsaiservice',
+  GetAlert: 'wailsalertservice',
   GetAllKeyboardBindings: 'wailskeyboardservice',
   GetAppIcon: 'wailsfileservice',
   GetAppVersion: 'wailsfileservice',
@@ -98,11 +107,13 @@ const methodService: Record<string, string> = {
   GetKeyboardBindingsByCategory: 'wailskeyboardservice',
   GetLightIcon: 'wailsfileservice',
   GetMultiConnectionSchema: 'queryservice',
+  GetNotebook: 'wailsnotebookservice',
   GetOAuthURL: 'wailsauthservice',
   GetPassword: 'wailsfileservice',
   GetQuerySuggestions: 'wailsaiservice',
   GetRecentFiles: 'wailsfileservice',
   GetReport: 'wailsreportservice',
+  GetRunbook: 'wailsrunbookservice',
   GetSchemaCacheStats: 'connectionservice',
   GetSchemaSnapshot: 'schemadiffservice',
   GetSchemas: 'queryservice',
@@ -123,17 +134,21 @@ const methodService: Record<string, string> = {
   InsertQueryRow: 'queryservice',
   InvalidateAllSchemas: 'connectionservice',
   InvalidateSchemaCache: 'connectionservice',
+  ListAlerts: 'wailsalertservice',
   ListCatalogTags: 'catalogservice',
   ListColumnCatalogEntries: 'catalogservice',
   ListConnectionDatabases: 'connectionservice',
   ListConnections: 'connectionservice',
+  ListNotebooks: 'wailsnotebookservice',
   ListReports: 'wailsreportservice',
+  ListRunbooks: 'wailsrunbookservice',
   ListSchemaSnapshots: 'schemadiffservice',
   ListSyntheticViews: 'storageservice',
   ListTableCatalogEntries: 'catalogservice',
   LoadAIMemorySessions: 'wailsaiservice',
   Logout: 'wailsauthservice',
   MarkColumnAsPII: 'catalogservice',
+  NotebookHistory: 'wailsnotebookservice',
   OnUrlOpen: 'wailsauthservice',
   OpenDownloadPage: 'updateservice',
   OpenEnvFileDialog: 'wailsfileservice',
@@ -148,7 +163,10 @@ const methodService: Record<string, string> = {
   RemoveKeyboardBinding: 'wailskeyboardservice',
   ResetKeyboardBindings: 'wailskeyboardservice',
   RestartApp: 'updateservice',
+  RunNotebook: 'wailsnotebookservice',
   RunReport: 'wailsreportservice',
+  RunRunbook: 'wailsrunbookservice',
+  RunbookHistory: 'wailsrunbookservice',
   SQLiteDeleteConnection: 'storageservice',
   SQLiteDeleteQuery: 'storageservice',
   SQLiteGetConnection: 'storageservice',
@@ -162,21 +180,28 @@ const methodService: Record<string, string> = {
   SQLiteSaveQueryHistory: 'storageservice',
   SQLiteSetSetting: 'storageservice',
   SaveAIMemorySessions: 'wailsaiservice',
+  SaveAlert: 'wailsalertservice',
   SaveConnection: 'connectionservice',
   SaveFileDialog: 'wailsfileservice',
+  SaveNotebook: 'wailsnotebookservice',
   SaveReport: 'wailsreportservice',
+  SaveRunbook: 'wailsrunbookservice',
   SaveSyntheticView: 'storageservice',
   SaveToDownloads: 'wailsfileservice',
   SearchCatalog: 'catalogservice',
+  SetAlertEnabled: 'wailsalertservice',
   SetApp: 'updateservice',
+  SetStore: 'wailsalertservice',
   ShowErrorDialog: 'wailsfileservice',
   ShowInfoDialog: 'wailsfileservice',
   ShowNotification: 'wailsfileservice',
   ShowQuestionDialog: 'wailsfileservice',
+  Start: 'wailsalertservice',
   StartClaudeCodeLogin: 'wailsaiservice',
   StartCodexLogin: 'wailsaiservice',
   StartWebAuthnAuthentication: 'wailsauthservice',
   StartWebAuthnRegistration: 'wailsauthservice',
+  Stop: 'wailsalertservice',
   StorageCompleteMigration: 'storageservice',
   StorageImportConnections: 'storageservice',
   StorageImportHistory: 'storageservice',
@@ -222,6 +247,7 @@ function makeBinding(method: string): (...args: unknown[]) => Promise<BindingRes
 export const AddKeyboardBinding = makeBinding('AddKeyboardBinding')
 export const AssignTableSteward = makeBinding('AssignTableSteward')
 export const CancelQueryStream = makeBinding('CancelQueryStream')
+export const CheckAlertNow = makeBinding('CheckAlertNow')
 export const CheckBiometricAvailability = makeBinding('CheckBiometricAvailability')
 export const CheckForUpdates = makeBinding('CheckForUpdates')
 export const CheckStoredToken = makeBinding('CheckStoredToken')
@@ -239,11 +265,14 @@ export const CreateSchemaSnapshot = makeBinding('CreateSchemaSnapshot')
 export const CreateTableCatalogEntry = makeBinding('CreateTableCatalogEntry')
 export const CreateTempFile = makeBinding('CreateTempFile')
 export const DeleteAIMemorySession = makeBinding('DeleteAIMemorySession')
+export const DeleteAlert = makeBinding('DeleteAlert')
 export const DeleteCatalogTag = makeBinding('DeleteCatalogTag')
 export const DeleteFile = makeBinding('DeleteFile')
+export const DeleteNotebook = makeBinding('DeleteNotebook')
 export const DeletePassword = makeBinding('DeletePassword')
 export const DeleteQueryRows = makeBinding('DeleteQueryRows')
 export const DeleteReport = makeBinding('DeleteReport')
+export const DeleteRunbook = makeBinding('DeleteRunbook')
 export const DeleteSchemaSnapshot = makeBinding('DeleteSchemaSnapshot')
 export const DeleteSyntheticView = makeBinding('DeleteSyntheticView')
 export const DeleteTableCatalogEntry = makeBinding('DeleteTableCatalogEntry')
@@ -262,12 +291,14 @@ export const FinishWebAuthnAuthentication = makeBinding('FinishWebAuthnAuthentic
 export const FinishWebAuthnRegistration = makeBinding('FinishWebAuthnRegistration')
 export const FixSQLError = makeBinding('FixSQLError')
 export const FixSQLErrorWithOptions = makeBinding('FixSQLErrorWithOptions')
+export const GenerateInsightBrief = makeBinding('GenerateInsightBrief')
 export const GenerateMigrationSQL = makeBinding('GenerateMigrationSQL')
 export const GenerateMigrationSQLFromSnapshot = makeBinding('GenerateMigrationSQLFromSnapshot')
 export const GenerateSQLFromNaturalLanguage = makeBinding('GenerateSQLFromNaturalLanguage')
 export const GenericChat = makeBinding('GenericChat')
 export const GetAIConfiguration = makeBinding('GetAIConfiguration')
 export const GetAIProviderStatus = makeBinding('GetAIProviderStatus')
+export const GetAlert = makeBinding('GetAlert')
 export const GetAllKeyboardBindings = makeBinding('GetAllKeyboardBindings')
 export const GetAppIcon = makeBinding('GetAppIcon')
 export const GetAppVersion = makeBinding('GetAppVersion')
@@ -292,11 +323,13 @@ export const GetHomePath = makeBinding('GetHomePath')
 export const GetKeyboardBindingsByCategory = makeBinding('GetKeyboardBindingsByCategory')
 export const GetLightIcon = makeBinding('GetLightIcon')
 export const GetMultiConnectionSchema = makeBinding('GetMultiConnectionSchema')
+export const GetNotebook = makeBinding('GetNotebook')
 export const GetOAuthURL = makeBinding('GetOAuthURL')
 export const GetPassword = makeBinding('GetPassword')
 export const GetQuerySuggestions = makeBinding('GetQuerySuggestions')
 export const GetRecentFiles = makeBinding('GetRecentFiles')
 export const GetReport = makeBinding('GetReport')
+export const GetRunbook = makeBinding('GetRunbook')
 export const GetSchemaCacheStats = makeBinding('GetSchemaCacheStats')
 export const GetSchemaSnapshot = makeBinding('GetSchemaSnapshot')
 export const GetSchemas = makeBinding('GetSchemas')
@@ -317,17 +350,21 @@ export const ImportKeyboardBindings = makeBinding('ImportKeyboardBindings')
 export const InsertQueryRow = makeBinding('InsertQueryRow')
 export const InvalidateAllSchemas = makeBinding('InvalidateAllSchemas')
 export const InvalidateSchemaCache = makeBinding('InvalidateSchemaCache')
+export const ListAlerts = makeBinding('ListAlerts')
 export const ListCatalogTags = makeBinding('ListCatalogTags')
 export const ListColumnCatalogEntries = makeBinding('ListColumnCatalogEntries')
 export const ListConnectionDatabases = makeBinding('ListConnectionDatabases')
 export const ListConnections = makeBinding('ListConnections')
+export const ListNotebooks = makeBinding('ListNotebooks')
 export const ListReports = makeBinding('ListReports')
+export const ListRunbooks = makeBinding('ListRunbooks')
 export const ListSchemaSnapshots = makeBinding('ListSchemaSnapshots')
 export const ListSyntheticViews = makeBinding('ListSyntheticViews')
 export const ListTableCatalogEntries = makeBinding('ListTableCatalogEntries')
 export const LoadAIMemorySessions = makeBinding('LoadAIMemorySessions')
 export const Logout = makeBinding('Logout')
 export const MarkColumnAsPII = makeBinding('MarkColumnAsPII')
+export const NotebookHistory = makeBinding('NotebookHistory')
 export const OnUrlOpen = makeBinding('OnUrlOpen')
 export const OpenDownloadPage = makeBinding('OpenDownloadPage')
 export const OpenEnvFileDialog = makeBinding('OpenEnvFileDialog')
@@ -342,7 +379,10 @@ export const RemoveFromRecentFiles = makeBinding('RemoveFromRecentFiles')
 export const RemoveKeyboardBinding = makeBinding('RemoveKeyboardBinding')
 export const ResetKeyboardBindings = makeBinding('ResetKeyboardBindings')
 export const RestartApp = makeBinding('RestartApp')
+export const RunNotebook = makeBinding('RunNotebook')
 export const RunReport = makeBinding('RunReport')
+export const RunRunbook = makeBinding('RunRunbook')
+export const RunbookHistory = makeBinding('RunbookHistory')
 export const SQLiteDeleteConnection = makeBinding('SQLiteDeleteConnection')
 export const SQLiteDeleteQuery = makeBinding('SQLiteDeleteQuery')
 export const SQLiteGetConnection = makeBinding('SQLiteGetConnection')
@@ -356,21 +396,28 @@ export const SQLiteSaveQuery = makeBinding('SQLiteSaveQuery')
 export const SQLiteSaveQueryHistory = makeBinding('SQLiteSaveQueryHistory')
 export const SQLiteSetSetting = makeBinding('SQLiteSetSetting')
 export const SaveAIMemorySessions = makeBinding('SaveAIMemorySessions')
+export const SaveAlert = makeBinding('SaveAlert')
 export const SaveConnection = makeBinding('SaveConnection')
 export const SaveFileDialog = makeBinding('SaveFileDialog')
+export const SaveNotebook = makeBinding('SaveNotebook')
 export const SaveReport = makeBinding('SaveReport')
+export const SaveRunbook = makeBinding('SaveRunbook')
 export const SaveSyntheticView = makeBinding('SaveSyntheticView')
 export const SaveToDownloads = makeBinding('SaveToDownloads')
 export const SearchCatalog = makeBinding('SearchCatalog')
+export const SetAlertEnabled = makeBinding('SetAlertEnabled')
 export const SetApp = makeBinding('SetApp')
+export const SetStore = makeBinding('SetStore')
 export const ShowErrorDialog = makeBinding('ShowErrorDialog')
 export const ShowInfoDialog = makeBinding('ShowInfoDialog')
 export const ShowNotification = makeBinding('ShowNotification')
 export const ShowQuestionDialog = makeBinding('ShowQuestionDialog')
+export const Start = makeBinding('Start')
 export const StartClaudeCodeLogin = makeBinding('StartClaudeCodeLogin')
 export const StartCodexLogin = makeBinding('StartCodexLogin')
 export const StartWebAuthnAuthentication = makeBinding('StartWebAuthnAuthentication')
 export const StartWebAuthnRegistration = makeBinding('StartWebAuthnRegistration')
+export const Stop = makeBinding('Stop')
 export const StorageCompleteMigration = makeBinding('StorageCompleteMigration')
 export const StorageImportConnections = makeBinding('StorageImportConnections')
 export const StorageImportHistory = makeBinding('StorageImportHistory')

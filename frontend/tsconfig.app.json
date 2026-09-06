@@ -11,6 +11,12 @@
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
+    // The Wails v3 beta binding generator emits fully JSDoc-typed `.js` files
+    // (previously `.ts`). allowJs/checkJs lets tsc resolve and type-check them
+    // exactly like the old .ts bindings, instead of silently treating every
+    // Call.ByID binding as `any`.
+    "allowJs": true,
+    "checkJs": true,
     "verbatimModuleSyntax": false,
     "moduleDetection": "force",
     "noEmit": true,
@@ -33,7 +39,7 @@
   "include": [
     "src",
     "bindings/github.com/jbeck018/howlerops/app.ts",
-    "bindings/github.com/jbeck018/howlerops/models.ts"
+    "bindings/github.com/jbeck018/howlerops/models.js"
   ],
   "exclude": [
     "node_modules",
